@@ -1,0 +1,101 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+
+:root {
+  --background: #0B0C10;
+  --foreground: #F5F7FA;
+  --card-bg: #151821;
+  --card-border: #222634;
+  --accent: #66FCF1;
+  --accent-hover: #45E3D8;
+  --muted: #8E9BAE;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Outfit', sans-serif;
+  overflow-x: hidden;
+}
+
+/* Glassmorphism utility */
+.glass {
+  background: rgba(21, 24, 33, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--card-border);
+}
+
+.accent-glow {
+  box-shadow: 0 0 15px rgba(102, 252, 241, 0.2);
+}
+
+/* Scrollbar customization */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--card-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Shimmer animation for upload progress bar */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* Tiptap Editor Styles */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #8E9BAE;
+  pointer-events: none;
+  height: 0;
+  font-style: italic;
+}
+
+ul[data-type="taskList"] {
+  list-style: none;
+  padding: 0;
+}
+
+ul[data-type="taskList"] p {
+  margin: 0;
+}
+
+ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+ul[data-type="taskList"] li>label {
+  flex: 0 0 auto;
+  margin-top: 0.25rem;
+  user-select: none;
+}
+
+ul[data-type="taskList"] li>div {
+  flex: 1 1 auto;
+}
