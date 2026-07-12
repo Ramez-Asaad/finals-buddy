@@ -1487,7 +1487,7 @@ export default function SubjectPortal() {
   }
 
   return (
-    <div className="min-h-screen pb-16 px-4 md:px-8 max-w-7xl mx-auto pt-6 selection:bg-[#A7C4A0] selection:text-[#141312]">
+    <div className="min-h-screen w-full pb-16 px-4 md:px-8 max-w-7xl mx-auto pt-6 selection:bg-[#A7C4A0] selection:text-[#141312]">
 
       {/* ── Upload Progress Toast (bottom-right, non-blocking) ── */}
       {uploading && uploadStage && (
@@ -1550,7 +1550,7 @@ export default function SubjectPortal() {
               </div>
 
               {/* Progress and Stats Row */}
-              <div className="grid grid-cols-3 gap-6 border-t md:border-t-0 md:border-l border-[#34302B] pt-6 md:pt-0 md:pl-8 min-w-[300px]">
+              <div className="grid grid-cols-3 gap-3 sm:gap-6 w-full md:w-auto border-t md:border-t-0 md:border-l border-[#34302B] pt-6 md:pt-0 md:pl-8">
                 <div className="text-left">
                   <span className="text-[10px] text-[#A29A8B] uppercase font-medium tracking-wider block mb-0.5">
                     {(() => { const d = daysUntil(subject.exam_date); return d === null ? "Countdown" : "Days left"; })()}
@@ -3537,9 +3537,9 @@ export default function SubjectPortal() {
 
           {/* TAB 8: NOTES / SCRATCHPAD */}
           {activeTab === 'notes' && (
-            <div className="flex h-[75vh] border border-[#34302B] rounded-2xl overflow-hidden glass">
+            <div className="flex flex-col md:flex-row h-auto md:h-[75vh] border border-[#34302B] rounded-2xl overflow-hidden glass">
               {/* Sidebar List */}
-              <div className="w-1/4 min-w-[250px] border-r border-[#34302B] bg-[#141312]/50 flex flex-col">
+              <div className="w-full md:w-1/4 md:min-w-[250px] max-h-[35vh] md:max-h-none border-b md:border-b-0 md:border-r border-[#34302B] bg-[#141312]/50 flex flex-col">
                 <div className="p-4 border-b border-[#34302B] flex justify-between items-center bg-[#1D1B19]">
                   <h3 className="font-extrabold text-white text-sm">Study Notes</h3>
                   <button 

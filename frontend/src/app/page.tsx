@@ -281,7 +281,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen pb-16 px-4 md:px-8 max-w-7xl mx-auto pt-6 selection:bg-[#A7C4A0] selection:text-[#141312]">
+    <div className="min-h-screen w-full pb-16 px-4 md:px-8 max-w-7xl mx-auto pt-6 selection:bg-[#A7C4A0] selection:text-[#141312]">
       {/* Premium Header */}
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-10 border-b border-[#34302B] pb-8">
         <div>
