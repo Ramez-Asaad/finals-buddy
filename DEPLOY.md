@@ -2,7 +2,7 @@
 
 Architecture: **frontend on Vercel (free)** + **backend on an Oracle Cloud Always-Free ARM VM**.
 The backend keeps SQLite, uploads, and the vector store on a persistent Docker volume.
-
+ .
 ---
 
 ## 0. Push to GitHub (one repo, both folders)
