@@ -166,7 +166,6 @@ You have access to tools to search the student's course materials, check their e
 
 INSTRUCTIONS:
 1. ALWAYS call `search_course_materials` if the student asks a question about their academic content.
-2. When calling tools, you MUST ONLY output the JSON tool call matching the schema exactly. Do not output conversational text or extra properties.
 2. The `search_course_materials` tool will return a highly compressed summary of the relevant facts. Base your answer heavily on it.
 3. Cite sources naturally (e.g. "According to Lecture 4...").
 4. If you don't know the answer and the tool finds nothing, be honest and provide your best academic knowledge as a supplement.
@@ -174,7 +173,9 @@ INSTRUCTIONS:
 6. For progress questions, use `get_study_progress`.
 7. Do NOT call `search_course_materials` more than twice per message. If you don't find the exact answer after 2 tries, tell the student the information isn't in their materials.
 8. Be encouraging, precise, and exam-focused. Use markdown formatting.
-9. You have full memory of this conversation — reference earlier messages when relevant."""
+9. You have full memory of this conversation — reference earlier messages when relevant.
+
+Note: tools are invoked through the native function-calling interface. Never write tool calls, function names, or JSON as plain text in your reply — either call a tool through the proper interface or answer the student directly in prose."""
 
 def run_langchain_chat(
     subject_id: int,
@@ -220,17 +221,15 @@ def run_langchain_chat(
         tools = [search_course_materials, get_subject_info, get_study_progress]
         tools_by_name = {t.name: t for t in tools}
 
-        llm_primary = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            api_key=GROQ_API_KEY,
-            temperature=0.0,
-        ).bind_tools(tools)
+        MODEL_NAME = "llama-3.3-70b-versatile"
 
-        llm_fallback = ChatGroq(
-            model="llama-3.3-70b-versatile",
-            api_key=GROQ_API_KEY_2,
-            temperature=0.0,
-        ).bind_tools(tools) if GROQ_API_KEY_2 else None
+        def make_groq_llm(api_key: str, temperature: float, with_tools: bool = True):
+            """Build a Groq chat model. Retries after a malformed tool call use a
+            HIGHER temperature: at temperature=0.0 the model greedy-decodes, so
+            regenerating the same request would produce the identical bad tool
+            call and fail again. Nudging temperature breaks that determinism."""
+            llm = ChatGroq(model=MODEL_NAME, api_key=api_key, temperature=temperature)
+            return llm.bind_tools(tools) if with_tools else llm
 
         mode_suffix = ""
         if mode == "simplified":
@@ -246,43 +245,55 @@ def run_langchain_chat(
 
         print(f"\n🧠 Groq Agent: Processing query for subject {subject_id}: '{query[:60]}...'")
 
-        # Use a pointer to the active LLM so we don't keep hitting the rate-limited key
-        current_llm = llm_primary
+        # Clean snapshot of the conversation (system + history + question) used as a
+        # safe base for the no-tools fallback if tool-calling can't be recovered.
+        base_messages = list(messages)
+
+        # Track the active key + temperature so we can rebuild the model on retry.
+        current_key = GROQ_API_KEY
+        tool_temp = 0.0
+        current_llm = make_groq_llm(current_key, tool_temp)
         search_count = 0
 
         # Tool-calling loop: max 5 iterations to prevent infinite loops
         for i in range(5):
             response = None
             retry_count = 0
-            
-            # Inner retry loop for API errors (rate limits or 400 syntax hallucinations)
-            while response is None and retry_count < 2:
+            max_tool_retries = 3
+
+            # Inner retry loop for API errors (rate limits or 400 tool-call validation failures)
+            while response is None and retry_count <= max_tool_retries:
                 try:
                     response = current_llm.invoke(messages)
                 except Exception as e:
                     err_str = str(e).lower()
-                    
+
                     if "rate limit" in err_str or "429" in err_str:
-                        if current_llm != llm_fallback and llm_fallback:
+                        if current_key != GROQ_API_KEY_2 and GROQ_API_KEY_2:
                             print("⚠️ Groq primary key hit rate limit. Switching to fallback key (GROQ_API_KEY_2).")
-                            current_llm = llm_fallback
-                            continue # Retry with new key
+                            current_key = GROQ_API_KEY_2
+                            current_llm = make_groq_llm(current_key, tool_temp)
+                            continue  # Retry with new key
                         else:
-                            raise e # Both keys exhausted
-                            
-                    elif "tool call validation failed" in err_str or "400" in err_str or "invalid" in err_str:
-                        print(f"⚠️ Groq hallucinated tool syntax. Retrying generation (Attempt {retry_count+1}/2)...")
+                            raise e  # Both keys exhausted
+
+                    elif ("tool_use_failed" in err_str or "failed to call a function" in err_str
+                          or "tool call validation" in err_str or "400" in err_str):
                         retry_count += 1
-                        # Temporarily append a strict formatting reminder for the retry
-                        if len(messages) == 0 or not isinstance(messages[-1], SystemMessage) or "ERROR: Tool" not in messages[-1].content:
-                            messages.append(SystemMessage(content="ERROR: Tool call validation failed. You MUST output a valid JSON tool call matching the exact schema. Do not output conversational text or extra arguments."))
-                        continue # Retry with same key to get clean JSON
-                        
+                        if retry_count > max_tool_retries:
+                            break  # Give up on tools; the no-tools fallback below will answer.
+                        # Escalate temperature so we don't regenerate the identical bad tool call.
+                        tool_temp = min(0.7, 0.3 * retry_count)
+                        print(f"⚠️ Groq tool-call validation failed. Retrying at temperature={tool_temp:.1f} "
+                              f"(Attempt {retry_count}/{max_tool_retries})...")
+                        current_llm = make_groq_llm(current_key, tool_temp)
+                        continue
+
                     else:
-                        raise e # Unknown error
-            
+                        raise e  # Unknown error
+
             if response is None:
-                print("❌ Groq failed repeatedly. Breaking tool loop.")
+                print("⚠️ Tool-calling failed repeatedly. Falling back to a direct (no-tools) answer.")
                 break
 
             messages.append(response)
@@ -315,11 +326,22 @@ def run_langchain_chat(
                 messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
 
         # Extract final answer
-        if response is None:
-            answer = "I'm sorry, I encountered an internal error while trying to process the tools. Please try asking your question differently."
+        if response is None or not (response.content or "").strip():
+            # Tool-calling never produced a usable answer. Make one final attempt
+            # WITHOUT tools bound so Groq can't hit tool-call validation at all —
+            # the model just answers directly from context + general knowledge.
+            print("🪄 Generating direct answer without tools...")
+            try:
+                direct_llm = make_groq_llm(current_key, 0.4, with_tools=False)
+                direct_response = direct_llm.invoke(base_messages)
+                answer = (direct_response.content or "").strip() or \
+                    "I couldn't find this in your materials. Could you rephrase or add more detail?"
+            except Exception as direct_err:
+                print(f"❌ Direct fallback also failed: {direct_err}")
+                answer = "I'm sorry, I hit a temporary issue answering that. Please try asking again in a moment."
         else:
-            answer = response.content if response.content else "I couldn't generate a response. Please try again."
-            
+            answer = response.content
+
         sources = _tool_context.get("last_sources", [])
 
         print(f"✅ Groq Agent: Final response generated ({len(answer)} chars)")
