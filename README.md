@@ -1,6 +1,6 @@
 # 🎓 Finals Buddy
 
-**An AI-powered study companion that turns your lecture slides, PDFs, and notes into an adaptive finals-prep workspace — flashcards, quizzes, mock exams, a RAG tutor, and a smart study planner, all generated from your own course material.**
+**An AI-powered study companion that turns your lecture slides, PDFs, and notes into an adaptive finals-prep workspace: flashcards, quizzes, mock exams, a RAG tutor, and a smart study planner, all generated from your own course material.**
 
 <p align="center">
   <img alt="Next.js" src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white">
@@ -13,32 +13,32 @@
   <img alt="Docker" src="https://img.shields.io/badge/Docker-Oracle_Cloud-2496ED?logo=docker&logoColor=white">
 </p>
 
-<!-- 🔗 Add your live URLs once deployed:
+
 <p align="center">
-  <a href="https://your-frontend.vercel.app"><b>🚀 Live Demo</b></a> &nbsp;·&nbsp;
+  <a href="https://finals-buddy.vercel.app"><b>🚀 Live Demo</b></a> &nbsp;·&nbsp;
   <a href="https://finalsbuddy.duckdns.org/docs"><b>📖 API Docs</b></a>
 </p>
--->
+
 
 ---
 
-## ✨ What it does
+## What it does
 
-Upload your course material and Finals Buddy does the rest — parsing the documents, mapping out the key topics, and building a full active-recall study system around them. Every study aid is grounded in **your** slides, not generic content.
+Upload your course material and Finals Buddy does the rest, parsing the documents, mapping out the key topics, and building a full active-recall study system around them. Every study aid is grounded in **your** slides, not generic content.
 
 | Feature | Description |
 |---|---|
-| 📥 **Material ingestion** | Upload `PDF`, `DOCX`, `PPTX`, or `TXT`. Files are parsed, chunked, embedded into a vector store, and turned into a structured **knowledge map** of topics and difficulty. |
-| 🃏 **Auto-generated flashcards** | Leitner-box **spaced repetition** (1 → 2 → 3 → 4 → 5-day intervals) built automatically from your material. |
-| ❓ **Active-recall quizzes** | Multiple-choice quizzes generated per topic, with instant grading and explanations. |
-| 📝 **Mock exams** | Full timed practice exams generated from your material, auto-graded on submission. |
-| 🤖 **RAG tutor** | Chat with your own material. Switch tutor personas — *Standard*, *Explain like I'm 5*, or *Analogies* — for the explanation style that clicks. |
-| 🧮 **Formula sheets** | Auto-extracted, KaTeX-rendered formula reference sheets with per-formula notes. |
-| 📓 **Rich notes** | A Notion-style block editor (TipTap) with Markdown, math, images, and file embeds. |
-| ✅ **Smart study planner** | Task checklist whose priorities re-rank themselves as exam dates approach. |
-| 🎯 **Recommendation engine** | Surfaces the single highest-ROI thing to do next via a weighted priority score (see below). |
-| ⏱️ **Focus mode** | Distraction-free full-screen canvas with a built-in Pomodoro timer. |
-| 🔐 **Auth + admin** | JWT authentication and a lightweight admin dashboard (usage stats, logs, health checks, live API-key rotation). |
+| **Material ingestion** | Upload `PDF`, `DOCX`, `PPTX`, or `TXT`. Files are parsed, chunked, embedded into a vector store, and turned into a structured **knowledge map** of topics and difficulty. |
+| **Auto-generated flashcards** | Leitner-box **spaced repetition** (1 → 2 → 3 → 4 → 5-day intervals) built automatically from your material. |
+| **Active-recall quizzes** | Multiple-choice quizzes generated per topic, with instant grading and explanations. |
+| **Mock exams** | Full timed practice exams generated from your material, auto-graded on submission. |
+| **RAG tutor** | Chat with your own material. Switch tutor personas: *Standard*, *Explain like I'm 5*, or *Analogies*: for the explanation style that clicks. |
+| **Formula sheets** | Auto-extracted, KaTeX-rendered formula reference sheets with per-formula notes. |
+| **Rich notes** | A Notion-style block editor (TipTap) with Markdown, math, images, and file embeds. |
+| **Smart study planner** | Task checklist whose priorities re-rank themselves as exam dates approach. |
+| **Recommendation engine** | Surfaces the single highest-ROI thing to do next via a weighted priority score (see below). |
+| **Focus mode** | Distraction-free full-screen canvas with a built-in Pomodoro timer. |
+| **Auth + admin** | JWT authentication and a lightweight admin dashboard (usage stats, logs, health checks, live API-key rotation). |
 
 ### The recommendation score
 
@@ -54,13 +54,10 @@ So the thing you're least confident about, on the subject with the nearest exam,
 
 ## 🖼️ Screenshots
 
-<!-- Drop your screenshots in a docs/ folder and reference them here for the LinkedIn post:
-| Dashboard | Subject portal | RAG tutor |
-|---|---|---|
-| ![Dashboard](docs/dashboard.png) | ![Subject](docs/subject.png) | ![Tutor](docs/tutor.png) |
--->
 
-> _Add a couple of screenshots here — they make the biggest difference on a project showcase._
+| Dashboard | Subject portal | RAG tutor | Tasks Planner |
+|---|---|---|---|
+| ![Dashboard](docs/dashboard.png) | ![Subject](docs/graph.png) | ![Tutor](docs/rag_agent.png) | ![Planner](docs/planner.png) |
 
 ---
 
@@ -68,7 +65,7 @@ So the thing you're least confident about, on the subject with the nearest exam,
 
 **Frontend**
 - **Next.js 16** (App Router, Turbopack) + **React 19** + **TypeScript**
-- **Tailwind CSS v4** — fully responsive, mobile-first
+- **Tailwind CSS v4**: fully responsive, mobile-first
 - **TipTap** rich-text editor · **KaTeX** math rendering · **lucide-react** icons
 
 **Backend**
@@ -82,7 +79,7 @@ So the thing you're least confident about, on the subject with the nearest exam,
 **Infrastructure**
 - **Docker** on an Oracle Cloud Always-Free **ARM** VM, with **Caddy** for automatic HTTPS
 - **Frontend on Vercel**
-- **GitHub Actions CI/CD** — every push to `master` that touches the backend auto-rebuilds and redeploys the container over SSH, no manual steps
+- **GitHub Actions CI/CD**: every push to `master` that touches the backend auto-rebuilds and redeploys the container over SSH, no manual steps
 
 ---
 
@@ -146,7 +143,6 @@ finals-buddy/
 │       ├── components/           # NotionEditor, Toast, …
 │       └── lib/api.ts            # API client
 ├── .github/workflows/            # CI/CD auto-deploy
-├── DEPLOY.md                     # Full $0/month deployment walkthrough
 └── README.md
 ```
 
@@ -154,7 +150,7 @@ finals-buddy/
 
 ## ☁️ Deployment
 
-The whole stack runs on free tiers — **[`DEPLOY.md`](DEPLOY.md)** is a step-by-step, first-timer walkthrough: Oracle Cloud Always-Free ARM VM for the backend (Docker + Caddy + persistent volume), Vercel for the frontend, and a GitHub Actions workflow that auto-redeploys the backend on every push.
+Live at **[finals-buddy.vercel.app](https://finals-buddy.vercel.app)**. The whole stack runs on free tiers: an Oracle Cloud Always-Free ARM VM for the backend (Docker + Caddy + persistent volume), Vercel for the frontend, and a GitHub Actions workflow that auto-redeploys the backend on every push.
 
 ---
 
