@@ -112,7 +112,7 @@ Windows 10/11 has OpenSSH built in:
 
 ```powershell
 # first time only: lock the key file down or ssh will refuse it
-icacls C:\Users\Ramoz\.ssh\finals-buddy.key /inheritance:r /grant:r "$env:USERNAME:(R)"
+icacls "G:\OneDrive - Alamein International University\Uni stuff\semester 8 - Spring 25-26\finals-buddy\ssh-key-2026-07-10.key" /inheritance:r /grant:r "$env:USERNAME:(R)"
 
 ssh -i C:\Users\Ramoz\.ssh\finals-buddy.key ubuntu@<PUBLIC_IP>
 ```
@@ -122,22 +122,12 @@ Type `yes` at the fingerprint prompt. You should land at `ubuntu@finals-buddy:~$
 ### 1d. Open port 8000 — layer 2 of 2: the VM's own firewall (iptables)
 
 Oracle's Ubuntu images ship with restrictive **iptables** rules baked in (this is the
-step everyone misses — the security list alone is not enough). The chain ends with a
-`REJECT` rule, and new ACCEPT rules MUST be inserted **above** it or they never run
-(rules below a REJECT are dead). This finds the REJECT line automatically:
+step everyone misses — the security list alone is not enough):
 
 ```bash
-REJ=$(sudo iptables -L INPUT --line-numbers | awk '/REJECT/{print $1; exit}')
-sudo iptables -I INPUT $REJ -m state --state NEW -p tcp --dport 8000 -j ACCEPT
+sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 8000 -j ACCEPT
 sudo netfilter-persistent save     # survives reboots
 ```
-
-Verify with `sudo iptables -L INPUT -n --line-numbers` — your `dpt:8000 ACCEPT` must
-have a lower line number than the `REJECT` line.
-
-> Note: Docker-published ports (like the API's 8000) actually bypass INPUT via the
-> FORWARD/DOCKER chains — but host processes (Caddy, anything you run directly) do
-> not, so get in the habit of inserting above the REJECT every time.
 
 ### 1e. Install Docker and deploy
 
@@ -188,25 +178,12 @@ From your own PC's browser: `http://<PUBLIC_IP>:8000/docs` → FastAPI docs page
 
 ## 3. Close the CORS loop
 
-Back on the VM — and note: **`docker restart` does NOT reload `--env-file`** (env is
-baked in at `docker run` time), so any .env change requires recreating the container:
+Back on the VM:
 
 ```bash
 nano ~/finals-buddy/backend/.env
-# set:  CORS_ORIGINS=https://finals-buddy.vercel.app   (exact domain, no trailing slash)
-
-cd ~/finals-buddy/backend
-docker rm -f finals-api
-docker run -d --name finals-api --restart unless-stopped \
-  -p 8000:8000 \
-  -v finals_data:/srv/finals-buddy/data \
-  --env-file .env \
-  finals-buddy-api
-# data survives — it lives in the finals_data volume, not the container
-
-# verify the header is actually served:
-curl -sI -H "Origin: https://finals-buddy.vercel.app" \
-  https://finalsbuddy.duckdns.org/api/subjects | grep -i access-control
+# set:  CORS_ORIGINS=https://finals-buddy.vercel.app
+docker restart finals-api
 ```
 
 ---
@@ -237,24 +214,17 @@ reach the backend until the API is behind https too. The free fix:
    ```
 
 3. Open ports **80 and 443** the same way as port 8000 (both layers: security-list
-   ingress rules + iptables), since Let's Encrypt validates over 80. Same rule as
-   before — insert **above** the REJECT line:
+   ingress rules + iptables), since Let's Encrypt validates over 80:
 
    ```bash
-   REJ=$(sudo iptables -L INPUT --line-numbers | awk '/REJECT/{print $1; exit}')
-   sudo iptables -I INPUT $REJ -m state --state NEW -p tcp --dport 443 -j ACCEPT
-   sudo iptables -I INPUT $REJ -m state --state NEW -p tcp --dport 80 -j ACCEPT
+   sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+   sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
    sudo netfilter-persistent save
    ```
 
-   Also: when you create your DuckDNS domain, it auto-fills with YOUR home IP —
-   remember to change it to the VM's public IP and click "update ip", then verify
-   with `dig +short yourname.duckdns.org @1.1.1.1` (the `@1.1.1.1` bypasses stale
-   local DNS caches).
-
 4. In Vercel → Project → Settings → Environment Variables: change
    `NEXT_PUBLIC_API_URL` to `https://something.duckdns.org/api` → **Redeploy**.
-5. Update `CORS_ORIGINS` on the VM if your Vercel domain changed, then recreate the container (see section 3 — `docker restart` alone will not pick up .env changes).
+5. Update `CORS_ORIGINS` on the VM if your Vercel domain changed, `docker restart finals-api`.
 
 ---
 
