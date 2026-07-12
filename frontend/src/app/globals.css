@@ -3,31 +3,90 @@
 
 
 :root {
-  --background: #0B0C10;
-  --foreground: #F5F7FA;
-  --card-bg: #151821;
-  --card-border: #222634;
-  --accent: #66FCF1;
-  --accent-hover: #45E3D8;
-  --muted: #8E9BAE;
+  /* Reading-room — warm charcoal surfaces, ivory text, a soft sage accent */
+  --ink-900: #141312;   /* page background */
+  --ink-800: #1D1B19;   /* cards / panels */
+  --ink-750: #262320;   /* raised / hover */
+  --ink-700: #34302B;   /* borders, dividers */
+  --paper: #ECE6DA;     /* primary text */
+  --paper-dim: #A29A8B; /* secondary text */
+  --paper-dimmer: #6E685C;
+  --mark: #A7C4A0;      /* sage — the single accent */
+  --mark-deep: #90AE88; /* accent hover */
+  --mark-tint: #CBDDC4; /* light sage */
+  --mark-ink: #141312;  /* dark text on accent */
+  --alert: #D28C97;     /* dusty rose — imminent deadlines only */
+
+  /* legacy aliases kept so any stray references still resolve */
+  --background: var(--ink-900);
+  --foreground: var(--paper);
+  --card-bg: var(--ink-800);
+  --card-border: var(--ink-700);
+  --accent: var(--mark);
+  --accent-hover: var(--mark-deep);
+  --muted: var(--paper-dim);
+
+  --radius: 10px;
 }
 
 body {
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family: 'Outfit', sans-serif;
+  background-color: var(--ink-900);
+  color: var(--paper);
+  font-family: var(--font-body), 'Outfit', sans-serif;
   overflow-x: hidden;
 }
 
-/* Glassmorphism utility */
-.glass {
-  background: rgba(21, 24, 33, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--card-border);
+/* Display face — used with restraint on wordmark, subject names, headings, big numbers */
+.font-display {
+  font-family: var(--font-display), Georgia, serif;
+  font-optical-sizing: auto;
 }
 
+/* Data numerals line up like an exam timetable board */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Flat index-card surface (name kept; blur/translucency removed) */
+.glass {
+  background: var(--ink-800);
+  border: 1px solid var(--ink-700);
+}
+
+/* Glow retired — kept as a no-op so existing class refs stay harmless */
 .accent-glow {
-  box-shadow: 0 0 15px rgba(102, 252, 241, 0.2);
+  box-shadow: none;
+}
+
+/* Sage underline that draws itself in beneath a heading (once, on load).
+   Sits below the text baseline so the text stays fully legible. */
+.mark-underline {
+  display: inline;
+  background-image: linear-gradient(var(--mark), var(--mark));
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0% 0.14em;
+  padding-bottom: 0.08em;
+  animation: mark-draw 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.25s forwards;
+}
+@keyframes mark-draw {
+  to { background-size: 100% 0.14em; }
+}
+
+/* Toast */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-toast-in {
+  animation: toast-in 0.22s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark-underline { animation: none; background-size: 100% 42%; }
+  .animate-toast-in { animation: none; }
+  .animate-shimmer { animation: none; }
 }
 
 /* Scrollbar customization */
@@ -37,16 +96,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--background);
+  background: var(--ink-900);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--card-border);
+  background: var(--ink-700);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
+  background: var(--mark);
 }
 
 /* Shimmer animation for upload progress bar */
@@ -68,7 +127,7 @@ body {
 .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
-  color: #8E9BAE;
+  color: var(--paper-dim);
   pointer-events: none;
   height: 0;
   font-style: italic;

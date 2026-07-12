@@ -3,10 +3,22 @@ from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Tex
 from sqlalchemy.orm import relationship
 from .database import Base
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    subjects = relationship("Subject", back_populates="user", cascade="all, delete-orphan")
+
 class Subject(Base):
     __tablename__ = "subjects"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String, nullable=False)
     exam_date = Column(String, nullable=True) # ISO Date string or text
     priority_level = Column(Integer, default=3) # 1-5
@@ -25,6 +37,7 @@ class Subject(Base):
     formulas = relationship("Formula", back_populates="subject", cascade="all, delete-orphan")
     resource_connections = relationship("ResourceConnection", back_populates="subject", cascade="all, delete-orphan")
     notes = relationship("Note", back_populates="subject", cascade="all, delete-orphan")
+    user = relationship("User", back_populates="subjects")
 
 class Note(Base):
     __tablename__ = "notes"

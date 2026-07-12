@@ -1,21 +1,28 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Outfit, Fraunces } from "next/font/google";
 import "./globals.css";
 import 'katex/dist/katex.min.css';
+import { Toaster } from "../components/Toast";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Body: quiet, legible sans
+const outfit = Outfit({
+  variable: "--font-body",
   subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+// Display: bookish serif, used with restraint on the wordmark, subject names,
+// headings and big numbers — the fastest "a human chose this" signal
+const fraunces = Fraunces({
+  variable: "--font-display",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
 });
 
 export const metadata: Metadata = {
-  title: "Finals Buddy | AI-Powered Finals Preparation Assistant",
-  description: "A personalized, adaptive AI academic coach and study planner that deeply understands your courses, lecture notes, labs, and quizzes to help you ace your university finals.",
+  title: "Finals Buddy — your study desk for exam season",
+  description: "Turn your lecture notes into summaries, flashcards, quizzes and a plan that keeps pace with your exam dates.",
 };
 
 export default function RootLayout({
@@ -25,13 +32,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full dark" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
-      </head>
-      <body className={`${geistSans.variable} ${geistMono.variable} min-h-full flex flex-col`} suppressHydrationWarning>
+      <body className={`${outfit.variable} ${fraunces.variable} min-h-full flex flex-col`} suppressHydrationWarning>
         {children}
+        <Toaster />
       </body>
     </html>
   );

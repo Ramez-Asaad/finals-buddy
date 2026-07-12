@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 !*/.env.example
+*.key
+*.pem
+rootkey.csv
 
 # --- python ---
 backend/venv/
@@ -23,3 +26,5 @@ frontend/out/
 # --- misc ---
 .DS_Store
 *.log
+backend/.auth_secret
+ssh-key-2026-07-10.key.pub

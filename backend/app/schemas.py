@@ -305,4 +305,54 @@ class KnowledgeMapOut(BaseModel):
     nodes: List[MaterialOut]
     edges: List[ResourceConnectionOut]
 
+# ---------- Auth ----------
+
+class SignupRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=8, max_length=128)
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    name: str
+
+    class Config:
+        from_attributes = True
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserOut
+
+# ---------- New CRUD ----------
+
+class QuizUpdate(BaseModel):
+    question: Optional[str] = None
+    correct_answer: Optional[str] = None
+    options: Optional[str] = None  # JSON string list
+    type: Optional[str] = None
+    explanation: Optional[str] = None
+
+class FormulaCreate(BaseModel):
+    name: str
+    latex_code: str
+    description: Optional[str] = None
+    variables_json: Optional[str] = None
+    derivation_steps_json: Optional[str] = None
+
+class FormulaUpdate(BaseModel):
+    name: Optional[str] = None
+    latex_code: Optional[str] = None
+    description: Optional[str] = None
+    variables_json: Optional[str] = None
+    derivation_steps_json: Optional[str] = None
+
+class GenerateCheatSheetRequest(BaseModel):
+    material_ids: List[int] = []  # empty = use all materials
+    replace_existing: bool = False
+
 

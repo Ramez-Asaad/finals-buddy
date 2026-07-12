@@ -15,6 +15,7 @@ from pptx import Presentation
 
 from .database import engine, Base, get_db, SessionLocal
 from . import models, schemas
+from .auth import hash_password, verify_password, create_token, get_current_user
 from .services.agents import (
     summarizer_agent,
     planner_recommender_agent,
@@ -63,16 +64,23 @@ try:
 except Exception as e:
     print(f"Migration note (title already exists): {e}")
 
-# Seeding Logic for empty DB
-from .database import SessionLocal
-def seed_database(db: Session):
-    if db.query(models.Subject).count() > 0:
-        return
-        
-    print("Seeding database with sample finals subjects...")
-    
+# Auto-migration: multi-tenancy — user_id on subjects (legacy rows keep NULL and
+# become invisible to all accounts; users own only their own data from here on)
+try:
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE subjects ADD COLUMN user_id INTEGER"))
+except Exception as e:
+    print(f"Migration note (user_id already exists): {e}")
+
+# Per-user demo seeding: every new account starts with two sample subjects so
+# the app is explorable immediately. Called from /api/auth/signup.
+def seed_demo_data(db: Session, user_id: int):
+    print(f"Seeding demo subjects for user {user_id}...")
+
     # 1. Subject 1: Operating Systems
     os_subj = models.Subject(
+        user_id=user_id,
         name="Operating Systems (CS 401)",
         exam_date=(datetime.date.today() + datetime.timedelta(days=14)).isoformat(),
         priority_level=5,
@@ -83,6 +91,7 @@ def seed_database(db: Session):
     
     # 2. Subject 2: Computer Architecture
     ca_subj = models.Subject(
+        user_id=user_id,
         name="Computer Architecture (CS 302)",
         exam_date=(datetime.date.today() + datetime.timedelta(days=3)).isoformat(),
         priority_level=4,
@@ -195,12 +204,6 @@ def seed_database(db: Session):
     ])
     db.commit()
 
-db = SessionLocal()
-try:
-    seed_database(db)
-finally:
-    db.close()
-
 app = FastAPI(title="Finals Buddy API", description="AI-powered University Finals Study Assistant Backend")
 
 # Ensure uploads directory exists
@@ -241,11 +244,58 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[st
         start += chunk_size - overlap
     return chunks
 
+# ----------------- AUTH -----------------
+
+@app.post("/api/auth/signup", response_model=schemas.AuthResponse)
+def signup(payload: schemas.SignupRequest, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Please enter a valid email address")
+    if db.query(models.User).filter(models.User.email == email).first():
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+
+    user = models.User(email=email, name=payload.name.strip(), hashed_password=hash_password(payload.password))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    # New accounts start empty — the dashboard shows a getting-started guide
+    # until the user adds their first subject.
+    return schemas.AuthResponse(token=create_token(user.id), user=user)
+
+@app.post("/api/auth/login", response_model=schemas.AuthResponse)
+def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    user = db.query(models.User).filter(models.User.email == email).first()
+    if not user or not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    return schemas.AuthResponse(token=create_token(user.id), user=user)
+
+@app.get("/api/auth/me", response_model=schemas.UserOut)
+def get_me(current_user: models.User = Depends(get_current_user)):
+    return current_user
+
+# ----------------- OWNERSHIP HELPERS -----------------
+
+def own_subject(db: Session, user: models.User, subject_id: int) -> models.Subject:
+    """Fetch a subject only if it belongs to the current user; 404 otherwise
+    (404, not 403, so account enumeration isn't possible)."""
+    subject = db.query(models.Subject).filter(
+        models.Subject.id == subject_id,
+        models.Subject.user_id == user.id
+    ).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    return subject
+
+def assert_owner(db: Session, user: models.User, subject_id: int):
+    own_subject(db, user, subject_id)
+
 # ----------------- SUBJECTS -----------------
 
 @app.post("/api/subjects", response_model=schemas.SubjectOut)
-def create_subject(subject: schemas.SubjectCreate, db: Session = Depends(get_db)):
-    db_subj = models.Subject(**subject.model_dump())
+def create_subject(subject: schemas.SubjectCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    db_subj = models.Subject(**subject.model_dump(), user_id=current_user.id)
     db.add(db_subj)
     db.commit()
     db.refresh(db_subj)
@@ -265,15 +315,13 @@ def create_subject(subject: schemas.SubjectCreate, db: Session = Depends(get_db)
     return db_subj
 
 @app.get("/api/subjects", response_model=List[schemas.SubjectOut])
-def list_subjects(db: Session = Depends(get_db)):
-    return db.query(models.Subject).all()
+def list_subjects(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    return db.query(models.Subject).filter(models.Subject.user_id == current_user.id).all()
 
 @app.get("/api/subjects/{subject_id}", response_model=schemas.SubjectDashboardOut)
-def get_subject_detail(subject_id: int, db: Session = Depends(get_db)):
-    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="Subject not found")
-        
+def get_subject_detail(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    subject = own_subject(db, current_user, subject_id)
+
     materials_count = len(subject.materials)
     
     # completion percentage
@@ -334,24 +382,20 @@ def get_subject_detail(subject_id: int, db: Session = Depends(get_db)):
     )
 
 @app.patch("/api/subjects/{subject_id}", response_model=schemas.SubjectOut)
-def update_subject(subject_id: int, subject_update: schemas.SubjectUpdate, db: Session = Depends(get_db)):
-    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="Subject not found")
-    
+def update_subject(subject_id: int, subject_update: schemas.SubjectUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    subject = own_subject(db, current_user, subject_id)
+
     update_data = subject_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(subject, key, value)
-        
+
     db.commit()
     db.refresh(subject)
     return subject
 
 @app.delete("/api/subjects/{subject_id}")
-def delete_subject(subject_id: int, db: Session = Depends(get_db)):
-    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="Subject not found")
+def delete_subject(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    subject = own_subject(db, current_user, subject_id)
     db.delete(subject)
     db.commit()
     return {"message": "Subject deleted successfully"}
@@ -522,13 +566,12 @@ async def upload_material(
     background_tasks: BackgroundTasks,
     subject_id: int = Form(...),
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
     t_start = time.time()
 
-    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="Subject not found")
+    subject = own_subject(db, current_user, subject_id)
 
     filename = file.filename
     file_ext = filename.split(".")[-1].lower()
@@ -655,11 +698,13 @@ async def upload_progress_stream(job_id: str):
 
 
 @app.get("/api/subjects/{subject_id}/materials", response_model=List[schemas.MaterialOut])
-def list_subject_materials(subject_id: int, db: Session = Depends(get_db)):
+def list_subject_materials(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     return db.query(models.Material).filter(models.Material.subject_id == subject_id).all()
 
 @app.post("/api/subjects/{subject_id}/generate-map", response_model=schemas.KnowledgeMapOut)
-def generate_knowledge_map(subject_id: int, db: Session = Depends(get_db)):
+def generate_knowledge_map(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     # 1. Fetch all materials for this subject
     materials = db.query(models.Material).filter(models.Material.subject_id == subject_id).all()
     if len(materials) < 2:
@@ -716,17 +761,19 @@ def generate_knowledge_map(subject_id: int, db: Session = Depends(get_db)):
     return {"nodes": materials, "edges": edges}
 
 @app.get("/api/subjects/{subject_id}/map", response_model=schemas.KnowledgeMapOut)
-def get_knowledge_map(subject_id: int, db: Session = Depends(get_db)):
+def get_knowledge_map(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     materials = db.query(models.Material).filter(models.Material.subject_id == subject_id).all()
     edges = db.query(models.ResourceConnection).filter(models.ResourceConnection.subject_id == subject_id).all()
     return {"nodes": materials, "edges": edges}
 
 @app.patch("/api/materials/{material_id}", response_model=schemas.MaterialOut)
-def update_material(material_id: int, material_update: schemas.MaterialUpdate, db: Session = Depends(get_db)):
+def update_material(material_id: int, material_update: schemas.MaterialUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     material = db.query(models.Material).filter(models.Material.id == material_id).first()
     if not material:
         raise HTTPException(status_code=404, detail="Material not found")
-        
+    assert_owner(db, current_user, material.subject_id)
+
     update_data = material_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(material, key, value)
@@ -736,11 +783,12 @@ def update_material(material_id: int, material_update: schemas.MaterialUpdate, d
     return material
 
 @app.delete("/api/materials/{material_id}")
-def delete_material(material_id: int, db: Session = Depends(get_db)):
+def delete_material(material_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     material = db.query(models.Material).filter(models.Material.id == material_id).first()
     if not material:
         raise HTTPException(status_code=404, detail="Material not found")
-        
+    assert_owner(db, current_user, material.subject_id)
+
     # 1. Remove physical file from disk
     if material.file_path and os.path.exists(material.file_path):
         try:
@@ -765,7 +813,8 @@ def delete_material(material_id: int, db: Session = Depends(get_db)):
 # ----------------- ADAPTIVE STUDY PLANNER & TASKS -----------------
 
 @app.post("/api/tasks", response_model=schemas.TaskOut)
-def create_task(task: schemas.TaskCreate, db: Session = Depends(get_db)):
+def create_task(task: schemas.TaskCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, task.subject_id)
     db_task = models.Task(**task.model_dump())
     db.add(db_task)
     db.commit()
@@ -773,15 +822,27 @@ def create_task(task: schemas.TaskCreate, db: Session = Depends(get_db)):
     return db_task
 
 @app.get("/api/subjects/{subject_id}/tasks", response_model=List[schemas.TaskOut])
-def list_subject_tasks(subject_id: int, db: Session = Depends(get_db)):
+def list_subject_tasks(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     return db.query(models.Task).filter(models.Task.subject_id == subject_id).all()
 
-@app.patch("/api/tasks/{task_id}", response_model=schemas.TaskOut)
-def update_task(task_id: int, task_data: schemas.TaskUpdate, db: Session = Depends(get_db)):
+@app.delete("/api/tasks/{task_id}")
+def delete_task(task_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
     if not db_task:
         raise HTTPException(status_code=404, detail="Task not found")
-        
+    assert_owner(db, current_user, db_task.subject_id)
+    db.delete(db_task)
+    db.commit()
+    return {"message": "Task deleted successfully"}
+
+@app.patch("/api/tasks/{task_id}", response_model=schemas.TaskOut)
+def update_task(task_id: int, task_data: schemas.TaskUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    db_task = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not db_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    assert_owner(db, current_user, db_task.subject_id)
+
     for key, value in task_data.model_dump(exclude_unset=True).items():
         setattr(db_task, key, value)
         
@@ -797,7 +858,8 @@ def update_task(task_id: int, task_data: schemas.TaskUpdate, db: Session = Depen
     return db_task
 
 @app.post("/api/study-sessions", response_model=schemas.StudySessionOut)
-def create_study_session(session: schemas.StudySessionCreate, db: Session = Depends(get_db)):
+def create_study_session(session: schemas.StudySessionCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, session.subject_id)
     db_session = models.StudySession(**session.model_dump())
     db.add(db_session)
     
@@ -811,17 +873,30 @@ def create_study_session(session: schemas.StudySessionCreate, db: Session = Depe
     return db_session
 
 @app.get("/api/subjects/{subject_id}/sessions", response_model=List[schemas.StudySessionOut])
-def list_subject_sessions(subject_id: int, db: Session = Depends(get_db)):
+def list_subject_sessions(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     return db.query(models.StudySession).filter(models.StudySession.subject_id == subject_id).all()
 
 # ----------------- NOTES / SCRATCHPAD -----------------
 
+@app.delete("/api/study-sessions/{session_id}")
+def delete_study_session(session_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    db_session = db.query(models.StudySession).filter(models.StudySession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="Study session not found")
+    assert_owner(db, current_user, db_session.subject_id)
+    db.delete(db_session)
+    db.commit()
+    return {"message": "Study session deleted successfully"}
+
 @app.get("/api/subjects/{subject_id}/notes", response_model=List[schemas.NoteOut])
-def list_subject_notes(subject_id: int, db: Session = Depends(get_db)):
+def list_subject_notes(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     return db.query(models.Note).filter(models.Note.subject_id == subject_id).order_by(models.Note.updated_at.desc()).all()
 
 @app.post("/api/subjects/{subject_id}/notes", response_model=schemas.NoteOut)
-def create_subject_note(subject_id: int, note: schemas.NoteCreate, db: Session = Depends(get_db)):
+def create_subject_note(subject_id: int, note: schemas.NoteCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     db_note = models.Note(
         subject_id=subject_id,
         title=note.title,
@@ -833,10 +908,11 @@ def create_subject_note(subject_id: int, note: schemas.NoteCreate, db: Session =
     return db_note
 
 @app.patch("/api/notes/{note_id}", response_model=schemas.NoteOut)
-def update_note(note_id: int, note_update: schemas.NoteUpdate, db: Session = Depends(get_db)):
+def update_note(note_id: int, note_update: schemas.NoteUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     db_note = db.query(models.Note).filter(models.Note.id == note_id).first()
     if not db_note:
         raise HTTPException(status_code=404, detail="Note not found")
+    assert_owner(db, current_user, db_note.subject_id)
     
     if note_update.title is not None:
         db_note.title = note_update.title
@@ -848,10 +924,11 @@ def update_note(note_id: int, note_update: schemas.NoteUpdate, db: Session = Dep
     return db_note
 
 @app.delete("/api/notes/{note_id}")
-def delete_note(note_id: int, db: Session = Depends(get_db)):
+def delete_note(note_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     db_note = db.query(models.Note).filter(models.Note.id == note_id).first()
     if not db_note:
         raise HTTPException(status_code=404, detail="Note not found")
+    assert_owner(db, current_user, db_note.subject_id)
     db.delete(db_note)
     db.commit()
     return {"message": "Note deleted successfully"}
@@ -859,7 +936,7 @@ def delete_note(note_id: int, db: Session = Depends(get_db)):
 # ----------------- UPLOADS -----------------
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), current_user: models.User = Depends(get_current_user)):
     # Generate unique filename to prevent overwrites
     ext = file.filename.split(".")[-1] if "." in file.filename else ""
     filename = f"{uuid.uuid4().hex}.{ext}"
@@ -873,12 +950,14 @@ async def upload_file(file: UploadFile = File(...)):
 # ----------------- REVISION & LEITNER FLASHCARDS -----------------
 
 @app.get("/api/subjects/{subject_id}/flashcards", response_model=List[schemas.FlashcardOut])
-def list_subject_flashcards(subject_id: int, db: Session = Depends(get_db)):
+def list_subject_flashcards(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     # Return all flashcards so frontend can filter by due date or view all in manage mode
     return db.query(models.Flashcard).filter(models.Flashcard.subject_id == subject_id).all()
 
 @app.post("/api/subjects/{subject_id}/flashcards", response_model=schemas.FlashcardOut)
-def create_subject_flashcard(subject_id: int, flashcard: schemas.FlashcardCreate, db: Session = Depends(get_db)):
+def create_subject_flashcard(subject_id: int, flashcard: schemas.FlashcardCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     db_card = models.Flashcard(
         subject_id=subject_id,
         front=flashcard.front,
@@ -892,19 +971,21 @@ def create_subject_flashcard(subject_id: int, flashcard: schemas.FlashcardCreate
     return db_card
 
 @app.delete("/api/flashcards/{card_id}")
-def delete_flashcard(card_id: int, db: Session = Depends(get_db)):
+def delete_flashcard(card_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     card = db.query(models.Flashcard).filter(models.Flashcard.id == card_id).first()
     if not card:
         raise HTTPException(status_code=404, detail="Flashcard not found")
+    assert_owner(db, current_user, card.subject_id)
     db.delete(card)
     db.commit()
     return {"message": "Flashcard deleted successfully"}
 
 @app.put("/api/flashcards/{card_id}", response_model=schemas.FlashcardOut)
-def update_flashcard(card_id: int, updates: schemas.FlashcardUpdate, db: Session = Depends(get_db)):
+def update_flashcard(card_id: int, updates: schemas.FlashcardUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     card = db.query(models.Flashcard).filter(models.Flashcard.id == card_id).first()
     if not card:
         raise HTTPException(status_code=404, detail="Flashcard not found")
+    assert_owner(db, current_user, card.subject_id)
     
     if updates.front is not None:
         card.front = updates.front
@@ -920,10 +1001,11 @@ def update_flashcard(card_id: int, updates: schemas.FlashcardUpdate, db: Session
     return card
 
 @app.post("/api/flashcards/{card_id}/review", response_model=schemas.FlashcardOut)
-def review_flashcard(card_id: int, review: schemas.FlashcardReviewRequest, db: Session = Depends(get_db)):
+def review_flashcard(card_id: int, review: schemas.FlashcardReviewRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     card = db.query(models.Flashcard).filter(models.Flashcard.id == card_id).first()
     if not card:
         raise HTTPException(status_code=404, detail="Flashcard not found")
+    assert_owner(db, current_user, card.subject_id)
         
     # Leitner Spaced Repetition Logic
     if review.is_correct:
@@ -944,10 +1026,8 @@ def review_flashcard(card_id: int, review: schemas.FlashcardReviewRequest, db: S
     return card
 
 @app.post("/api/subjects/{subject_id}/generate-more")
-def generate_more_active_recall(subject_id: int, request: schemas.GenerateMoreRequest, db: Session = Depends(get_db)):
-    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="Subject not found")
+def generate_more_active_recall(subject_id: int, request: schemas.GenerateMoreRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    subject = own_subject(db, current_user, subject_id)
 
     materials = db.query(models.Material).filter(models.Material.subject_id == subject_id)
     if request.material_id is not None:
@@ -1013,14 +1093,47 @@ def generate_more_active_recall(subject_id: int, request: schemas.GenerateMoreRe
     return result
 
 @app.get("/api/subjects/{subject_id}/quizzes", response_model=List[schemas.QuizOut])
-def list_subject_quizzes(subject_id: int, db: Session = Depends(get_db)):
+def list_subject_quizzes(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     return db.query(models.Quiz).filter(models.Quiz.subject_id == subject_id).all()
 
-@app.post("/api/quizzes/{quiz_id}/answer", response_model=schemas.QuizAnswerResponse)
-def answer_quiz_question(quiz_id: int, answer_req: schemas.QuizAnswerRequest, db: Session = Depends(get_db)):
+@app.post("/api/subjects/{subject_id}/quizzes", response_model=schemas.QuizOut)
+def create_quiz_question(subject_id: int, quiz: schemas.QuizBase, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
+    db_quiz = models.Quiz(subject_id=subject_id, **quiz.model_dump())
+    db.add(db_quiz)
+    db.commit()
+    db.refresh(db_quiz)
+    return db_quiz
+
+@app.put("/api/quizzes/{quiz_id}", response_model=schemas.QuizOut)
+def update_quiz_question(quiz_id: int, updates: schemas.QuizUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     quiz = db.query(models.Quiz).filter(models.Quiz.id == quiz_id).first()
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz question not found")
+    assert_owner(db, current_user, quiz.subject_id)
+    for key, value in updates.model_dump(exclude_unset=True).items():
+        setattr(quiz, key, value)
+    db.commit()
+    db.refresh(quiz)
+    return quiz
+
+@app.delete("/api/quizzes/{quiz_id}")
+def delete_quiz_question(quiz_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    quiz = db.query(models.Quiz).filter(models.Quiz.id == quiz_id).first()
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz question not found")
+    assert_owner(db, current_user, quiz.subject_id)
+    db.delete(quiz)
+    db.commit()
+    return {"message": "Quiz question deleted successfully"}
+
+@app.post("/api/quizzes/{quiz_id}/answer", response_model=schemas.QuizAnswerResponse)
+def answer_quiz_question(quiz_id: int, answer_req: schemas.QuizAnswerRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    quiz = db.query(models.Quiz).filter(models.Quiz.id == quiz_id).first()
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz question not found")
+    assert_owner(db, current_user, quiz.subject_id)
         
     is_correct = quiz.correct_answer.strip().lower() == answer_req.user_answer.strip().lower()
     
@@ -1051,11 +1164,10 @@ def tutor_chat(
     subject_id: int = Form(...),
     query: str = Form(...),
     mode: str = Form("standard"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
 ):
-    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="Subject not found")
+    subject = own_subject(db, current_user, subject_id)
         
     # 1. Save user message
     user_msg = models.ChatMessage(
@@ -1092,27 +1204,24 @@ def tutor_chat(
     }
 
 @app.get("/api/subjects/{subject_id}/chats", response_model=List[schemas.ChatMessageOut])
-def get_chat_history(subject_id: int, db: Session = Depends(get_db)):
-    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="Subject not found")
+def get_chat_history(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     return db.query(models.ChatMessage).filter(models.ChatMessage.subject_id == subject_id).order_by(models.ChatMessage.created_at.asc()).all()
 
 @app.patch("/api/chats/{message_id}", response_model=schemas.ChatMessageOut)
-def update_chat_message(message_id: int, message_update: schemas.ChatMessageUpdate, db: Session = Depends(get_db)):
+def update_chat_message(message_id: int, message_update: schemas.ChatMessageUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     msg = db.query(models.ChatMessage).filter(models.ChatMessage.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
+    assert_owner(db, current_user, msg.subject_id)
     msg.content = message_update.content
     db.commit()
     db.refresh(msg)
     return msg
 
 @app.delete("/api/subjects/{subject_id}/chats")
-def clear_chat_history(subject_id: int, db: Session = Depends(get_db)):
-    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="Subject not found")
+def clear_chat_history(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     
     db.query(models.ChatMessage).filter(models.ChatMessage.subject_id == subject_id).delete()
     db.commit()
@@ -1122,8 +1231,8 @@ def clear_chat_history(subject_id: int, db: Session = Depends(get_db)):
 # ----------------- GLOBAL ANALYTICS & DASHBOARD -----------------
 
 @app.get("/api/dashboard/recommendations", response_model=List[schemas.RecommendationOut])
-def get_global_recommendations(db: Session = Depends(get_db)):
-    subjects = db.query(models.Subject).all()
+def get_global_recommendations(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    subjects = db.query(models.Subject).filter(models.Subject.user_id == current_user.id).all()
     all_recs = []
     
     for subject in subjects:
@@ -1154,25 +1263,30 @@ def get_global_recommendations(db: Session = Depends(get_db)):
             
     db.commit()
     
-    # Return top active recommendations sorted by score
+    # Return top active recommendations sorted by score (scoped to this user)
+    user_subject_ids = [s.id for s in subjects]
     active_recs = db.query(models.Recommendation).filter(
-        models.Recommendation.is_dismissed == False
+        models.Recommendation.is_dismissed == False,
+        models.Recommendation.subject_id.in_(user_subject_ids)
     ).order_by(models.Recommendation.score.desc()).all()
     
     return active_recs[:5]
 
 @app.get("/api/dashboard/summary")
-def get_dashboard_summary(db: Session = Depends(get_db)):
-    subjects = db.query(models.Subject).all()
+def get_dashboard_summary(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    subjects = db.query(models.Subject).filter(models.Subject.user_id == current_user.id).all()
     total_subjects = len(subjects)
-    
-    # Aggregations
-    total_study_minutes = db.query(models.StudySession).with_entities(
+    subject_ids = [s.id for s in subjects]
+
+    # Aggregations (scoped to this user)
+    total_study_minutes = db.query(models.StudySession).filter(
+        models.StudySession.subject_id.in_(subject_ids)
+    ).with_entities(
         models.StudySession.duration_minutes
     ).all()
     studied_hours = sum([m[0] for m in total_study_minutes if m[0]]) / 60.0
-    
-    tasks = db.query(models.Task).all()
+
+    tasks = db.query(models.Task).filter(models.Task.subject_id.in_(subject_ids)).all()
     total_tasks = len(tasks)
     completed_tasks = len([t for t in tasks if t.status == "completed"])
     global_completion = (completed_tasks / total_tasks * 100.0) if total_tasks > 0 else 0.0
@@ -1203,14 +1317,23 @@ def get_dashboard_summary(db: Session = Depends(get_db)):
 # ----------------- PHASE 2: MOCK EXAMS & CHEAT SHEETS -----------------
 
 @app.get("/api/subjects/{subject_id}/mock-exams", response_model=List[schemas.MockExamOut])
-def list_subject_mock_exams(subject_id: int, db: Session = Depends(get_db)):
+def list_subject_mock_exams(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
     return db.query(models.MockExam).filter(models.MockExam.subject_id == subject_id).all()
 
+@app.delete("/api/mock-exams/{exam_id}")
+def delete_mock_exam(exam_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    exam = db.query(models.MockExam).filter(models.MockExam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Mock exam not found")
+    assert_owner(db, current_user, exam.subject_id)
+    db.delete(exam)
+    db.commit()
+    return {"message": "Mock exam deleted successfully"}
+
 @app.post("/api/subjects/{subject_id}/mock-exams", response_model=schemas.MockExamOut)
-def generate_subject_mock_exam(subject_id: int, db: Session = Depends(get_db)):
-    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="Subject not found")
+def generate_subject_mock_exam(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    subject = own_subject(db, current_user, subject_id)
 
     materials = db.query(models.Material).filter(models.Material.subject_id == subject_id).all()
     texts = [m.summary for m in materials if m.summary]
@@ -1244,10 +1367,11 @@ def generate_subject_mock_exam(subject_id: int, db: Session = Depends(get_db)):
     return exam
 
 @app.post("/api/mock-exams/{exam_id}/submit", response_model=schemas.MockExamOut)
-def submit_mock_exam(exam_id: int, req: schemas.MockExamSubmitRequest, db: Session = Depends(get_db)):
+def submit_mock_exam(exam_id: int, req: schemas.MockExamSubmitRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     exam = db.query(models.MockExam).filter(models.MockExam.id == exam_id).first()
     if not exam:
         raise HTTPException(status_code=404, detail="Mock exam session not found")
+    assert_owner(db, current_user, exam.subject_id)
 
     materials = db.query(models.Material).filter(models.Material.subject_id == exam.subject_id).all()
     texts = [m.summary for m in materials if m.summary]
@@ -1298,40 +1422,88 @@ def submit_mock_exam(exam_id: int, req: schemas.MockExamSubmitRequest, db: Sessi
     return exam
 
 @app.get("/api/subjects/{subject_id}/formulas", response_model=List[schemas.FormulaOut])
-def get_subject_formulas(subject_id: int, db: Session = Depends(get_db)):
-    subject = db.query(models.Subject).filter(models.Subject.id == subject_id).first()
-    if not subject:
-        raise HTTPException(status_code=404, detail="Subject not found")
+def get_subject_formulas(subject_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
+    # List-only: generation now happens explicitly via /formulas/generate
+    return db.query(models.Formula).filter(models.Formula.subject_id == subject_id).all()
 
-    formulas = db.query(models.Formula).filter(models.Formula.subject_id == subject_id).all()
-    if not formulas:
-        # Trigger auto extraction
-        materials = db.query(models.Material).filter(models.Material.subject_id == subject_id).all()
-        texts = [m.summary for m in materials if m.summary]
-        
-        extracted = formula_extractor_agent.extract_formulas(subject.name, texts)
-        formulas_list = extracted.get("formulas", [])
+@app.post("/api/subjects/{subject_id}/formulas/generate", response_model=List[schemas.FormulaOut])
+def generate_cheat_sheet(subject_id: int, req: schemas.GenerateCheatSheetRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Generate cheat-sheet entries from the user's selected materials.
+    Empty material_ids means 'use all materials for this subject'."""
+    subject = own_subject(db, current_user, subject_id)
 
-        for f in formulas_list:
-            db_f = models.Formula(
-                subject_id=subject_id,
-                name=f.get("name", "Key Theorem"),
-                latex_code=f.get("latex_code", ""),
-                description=f.get("description", ""),
-                variables_json=json.dumps(f.get("variables", [])),
-                derivation_steps_json=json.dumps(f.get("derivation_steps", []))
-            )
-            db.add(db_f)
-        db.commit()
-        formulas = db.query(models.Formula).filter(models.Formula.subject_id == subject_id).all()
+    materials_q = db.query(models.Material).filter(models.Material.subject_id == subject_id)
+    if req.material_ids:
+        materials_q = materials_q.filter(models.Material.id.in_(req.material_ids))
+    materials = materials_q.all()
+    if not materials:
+        raise HTTPException(status_code=400, detail="No matching materials to generate from. Upload materials first.")
 
-    return formulas
+    # Prefer the richer deep-research summary when available
+    texts = [(m.deep_research_summary or m.summary) for m in materials if (m.deep_research_summary or m.summary)]
+    if not texts:
+        raise HTTPException(status_code=400, detail="Selected materials have no processed content yet — wait for ingestion to finish.")
 
-@app.post("/api/formulas/{formula_id}/note")
-def update_formula_note(formula_id: int, note_data: dict, db: Session = Depends(get_db)):
+    extracted = formula_extractor_agent.extract_formulas(subject.name, texts)
+    formulas_list = extracted.get("formulas", [])
+    if not formulas_list:
+        raise HTTPException(status_code=502, detail="The AI couldn't extract formulas from the selected materials. Try different resources.")
+
+    if req.replace_existing:
+        db.query(models.Formula).filter(models.Formula.subject_id == subject_id).delete()
+
+    for f in formulas_list:
+        db_f = models.Formula(
+            subject_id=subject_id,
+            name=f.get("name", "Key Theorem"),
+            latex_code=f.get("latex_code", ""),
+            description=f.get("description", ""),
+            variables_json=json.dumps(f.get("variables", [])),
+            derivation_steps_json=json.dumps(f.get("derivation_steps", []))
+        )
+        db.add(db_f)
+    db.commit()
+
+    return db.query(models.Formula).filter(models.Formula.subject_id == subject_id).all()
+
+@app.post("/api/subjects/{subject_id}/formulas", response_model=schemas.FormulaOut)
+def create_formula(subject_id: int, formula: schemas.FormulaCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    assert_owner(db, current_user, subject_id)
+    db_f = models.Formula(subject_id=subject_id, **formula.model_dump())
+    db.add(db_f)
+    db.commit()
+    db.refresh(db_f)
+    return db_f
+
+@app.put("/api/formulas/{formula_id}", response_model=schemas.FormulaOut)
+def update_formula(formula_id: int, updates: schemas.FormulaUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     formula = db.query(models.Formula).filter(models.Formula.id == formula_id).first()
     if not formula:
         raise HTTPException(status_code=404, detail="Formula entry not found")
+    assert_owner(db, current_user, formula.subject_id)
+    for key, value in updates.model_dump(exclude_unset=True).items():
+        setattr(formula, key, value)
+    db.commit()
+    db.refresh(formula)
+    return formula
+
+@app.delete("/api/formulas/{formula_id}")
+def delete_formula(formula_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    formula = db.query(models.Formula).filter(models.Formula.id == formula_id).first()
+    if not formula:
+        raise HTTPException(status_code=404, detail="Formula entry not found")
+    assert_owner(db, current_user, formula.subject_id)
+    db.delete(formula)
+    db.commit()
+    return {"message": "Formula deleted successfully"}
+
+@app.post("/api/formulas/{formula_id}/note")
+def update_formula_note(formula_id: int, note_data: dict, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    formula = db.query(models.Formula).filter(models.Formula.id == formula_id).first()
+    if not formula:
+        raise HTTPException(status_code=404, detail="Formula entry not found")
+    assert_owner(db, current_user, formula.subject_id)
 
     note = note_data.get("note", "")
     # Append to description or keep track

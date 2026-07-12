@@ -34,10 +34,34 @@ import {
   AlignLeft,
   Plus
 } from "lucide-react";
-import { api, API_BASE, SubjectDashboard, Material, Task, Flashcard, Quiz, MockExam, MockExamQuestion, Formula, Note } from "../../../lib/api";
+import { api, API_BASE, getToken, SubjectDashboard, Material, Task, Flashcard, Quiz, MockExam, MockExamQuestion, Formula, Note } from "../../../lib/api";
 import NotionEditor from "../../../components/NotionEditor";
+import { toast } from "../../../components/Toast";
 
 type TabType = 'overview' | 'planner' | 'tutor' | 'revision' | 'focus' | 'exams' | 'cheat-sheet' | 'map' | 'notes';
+
+// Days between today and an ISO exam date. null when no date set.
+function daysUntil(iso?: string): number | null {
+  if (!iso) return null;
+  const exam = new Date(iso + "T00:00:00");
+  if (isNaN(exam.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((exam.getTime() - today.getTime()) / 86400000);
+}
+
+
+// Sentence-case tab labels (shorter, calmer than the old ALL-CAPS)
+const tabLabels: Record<string, string> = {
+  overview: "Materials",
+  map: "Connections",
+  planner: "Study planner",
+  tutor: "Tutor",
+  revision: "Recall & revision",
+  exams: "Mock exams",
+  "cheat-sheet": "Cheat sheet",
+  notes: "Notes",
+};
 
 function parseMessageContent(rawText: string): { text: string; sources: string[] } {
   if (!rawText) return { text: "", sources: [] };
@@ -138,7 +162,7 @@ function InteractiveFlowchart({ code }: { code: string }) {
   
   if (nodes.length === 0) {
     return (
-      <pre className="bg-[#0B0C10] border border-[#222634] p-3 rounded-xl my-2 text-[10px] font-mono text-[#66FCF1]">
+      <pre className="bg-[#141312] border border-[#34302B] p-3 rounded-xl my-2 text-[10px] font-mono text-[#A7C4A0]">
         <code>{code}</code>
       </pre>
     );
@@ -202,12 +226,12 @@ function InteractiveFlowchart({ code }: { code: string }) {
   }
 
   return (
-    <div className="my-3 bg-[#0B0C10]/80 border border-[#222634] rounded-2xl p-4 overflow-hidden relative w-full">
+    <div className="my-3 bg-[#141312]/80 border border-[#34302B] rounded-2xl p-4 overflow-hidden relative w-full">
       <div className="flex justify-between items-center mb-2">
-        <span className="text-[8px] font-black text-[#66FCF1] uppercase tracking-wider flex items-center gap-1">
-          <Sparkles className="w-3 h-3 animate-pulse" /> Interactive Architecture Flowchart
+        <span className="text-[8px] font-black text-[#A7C4A0] uppercase tracking-wider flex items-center gap-1">
+          Interactive flowchart
         </span>
-        <span className="text-[8px] text-[#8E9BAE] font-bold">RAG Tutor Diagram</span>
+        <span className="text-[8px] text-[#A29A8B] font-bold">RAG Tutor Diagram</span>
       </div>
       
       <div className="overflow-x-auto w-full">
@@ -226,7 +250,7 @@ function InteractiveFlowchart({ code }: { code: string }) {
               </feMerge>
             </filter>
             <marker id="diagram-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-              <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#66FCF1" />
+              <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#A7C4A0" />
             </marker>
           </defs>
 
@@ -263,7 +287,7 @@ function InteractiveFlowchart({ code }: { code: string }) {
               <g key={idx}>
                 <path
                   d={`M ${x1} ${y1} L ${x2} ${y2}`}
-                  stroke="#66FCF1"
+                  stroke="#A7C4A0"
                   strokeWidth="1.2"
                   fill="none"
                   markerEnd="url(#diagram-arrow)"
@@ -287,10 +311,10 @@ function InteractiveFlowchart({ code }: { code: string }) {
                   height={nodeHeight}
                   rx="6"
                   ry="6"
-                  fill="#1C1F2E"
-                  stroke="#66FCF1"
+                  fill="#262320"
+                  stroke="#A7C4A0"
                   strokeWidth="1.2"
-                  className="transition-all duration-200 group-hover:fill-[#2B3045]"
+                  className="transition-all duration-200 group-hover:fill-[#34302B]"
                   style={{ filter: "url(#diagram-glow)" }}
                 />
                 <text
@@ -329,8 +353,8 @@ function renderFormattedMessage(text: string) {
       }
 
       return (
-        <pre key={idx} className="bg-[#0B0C10] border border-[#222634] p-3.5 rounded-xl my-2.5 overflow-x-auto text-[10px] font-mono text-[#66FCF1] leading-normal w-full">
-          {lang && <div className="text-[8px] uppercase tracking-wider text-[#8E9BAE] font-black mb-1.5 border-b border-[#222634] pb-1">{lang}</div>}
+        <pre key={idx} className="bg-[#141312] border border-[#34302B] p-3.5 rounded-xl my-2.5 overflow-x-auto text-[10px] font-mono text-[#A7C4A0] leading-normal w-full">
+          {lang && <div className="text-[8px] uppercase tracking-wider text-[#A29A8B] font-black mb-1.5 border-b border-[#34302B] pb-1">{lang}</div>}
           <code>{code}</code>
         </pre>
       );
@@ -366,10 +390,10 @@ function renderFormattedMessage(text: string) {
           return <strong key={sIdx} className="font-extrabold text-white">{subPart.slice(2, -2)}</strong>;
         }
         if (subPart.startsWith("*") && subPart.endsWith("*")) {
-          return <em key={sIdx} className="italic text-[#E2E8F0]">{subPart.slice(1, -1)}</em>;
+          return <em key={sIdx} className="italic text-[#ECE6DA]">{subPart.slice(1, -1)}</em>;
         }
         if (subPart.startsWith("`") && subPart.endsWith("`")) {
-          return <code key={sIdx} className="bg-[#0B0C10] px-1.5 py-0.5 rounded text-[#66FCF1] font-mono text-[10px] border border-[#222634]/60">{subPart.slice(1, -1)}</code>;
+          return <code key={sIdx} className="bg-[#141312] px-1.5 py-0.5 rounded text-[#A7C4A0] font-mono text-[10px] border border-[#34302B]/60">{subPart.slice(1, -1)}</code>;
         }
         return subPart;
       });
@@ -377,14 +401,14 @@ function renderFormattedMessage(text: string) {
       if (isHeading) {
         if (headingLevel === 1) {
           return (
-            <h1 key={lIdx} className="text-sm font-black text-[#66FCF1] border-b border-[#222634] pb-1 mt-4 mb-2">
+            <h1 key={lIdx} className="text-sm font-black text-[#A7C4A0] border-b border-[#34302B] pb-1 mt-4 mb-2">
               {parsedLine}
             </h1>
           );
         }
         if (headingLevel === 2) {
           return (
-            <h2 key={lIdx} className="text-xs font-extrabold text-[#66FCF1] mt-3.5 mb-1.5">
+            <h2 key={lIdx} className="text-xs font-extrabold text-[#A7C4A0] mt-3.5 mb-1.5">
               {parsedLine}
             </h2>
           );
@@ -397,7 +421,7 @@ function renderFormattedMessage(text: string) {
           );
         }
         return (
-          <h4 key={lIdx} className="text-[10px] font-semibold text-[#8E9BAE] uppercase tracking-wider mt-2 mb-1">
+          <h4 key={lIdx} className="text-[10px] font-semibold text-[#A29A8B] uppercase tracking-wider mt-2 mb-1">
             {parsedLine}
           </h4>
         );
@@ -405,8 +429,8 @@ function renderFormattedMessage(text: string) {
 
       if (isBullet) {
         return (
-          <div key={lIdx} className="flex items-start gap-2 ml-3 mt-1 text-[#E2E8F0]">
-            <span className="text-[#66FCF1] select-none mt-0.5">•</span>
+          <div key={lIdx} className="flex items-start gap-2 ml-3 mt-1 text-[#ECE6DA]">
+            <span className="text-[#A7C4A0] select-none mt-0.5">•</span>
             <div className="flex-1">{parsedLine}</div>
           </div>
         );
@@ -475,6 +499,40 @@ export default function SubjectPortal() {
   const [sessionNotes, setSessionNotes] = useState("");
   const [sessionTitle, setSessionTitle] = useState("Deep Focus Session");
   const [loggingSession, setLoggingSession] = useState(false);
+
+  // Task CRUD states (planner)
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editTaskTitle, setEditTaskTitle] = useState("");
+  const [editTaskDesc, setEditTaskDesc] = useState("");
+  const [editTaskDuration, setEditTaskDuration] = useState(30);
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDesc, setNewTaskDesc] = useState("");
+  const [newTaskDuration, setNewTaskDuration] = useState(30);
+
+  // Quiz CRUD states
+  const [editingQuizId, setEditingQuizId] = useState<number | null>(null);
+  const [editQuizQuestion, setEditQuizQuestion] = useState("");
+  const [editQuizOptions, setEditQuizOptions] = useState<string[]>([]);
+  const [editQuizAnswer, setEditQuizAnswer] = useState("");
+  const [showAddQuiz, setShowAddQuiz] = useState(false);
+  const [newQuizQuestion, setNewQuizQuestion] = useState("");
+  const [newQuizOptions, setNewQuizOptions] = useState(["", "", "", ""]);
+  const [newQuizCorrectIdx, setNewQuizCorrectIdx] = useState(0);
+
+  // Formula CRUD + cheat sheet generation states
+  const [editingFormulaId, setEditingFormulaId] = useState<number | null>(null);
+  const [editFormulaName, setEditFormulaName] = useState("");
+  const [editFormulaLatex, setEditFormulaLatex] = useState("");
+  const [editFormulaDesc, setEditFormulaDesc] = useState("");
+  const [showAddFormula, setShowAddFormula] = useState(false);
+  const [newFormulaName, setNewFormulaName] = useState("");
+  const [newFormulaLatex, setNewFormulaLatex] = useState("");
+  const [newFormulaDesc, setNewFormulaDesc] = useState("");
+  const [showCheatSheetModal, setShowCheatSheetModal] = useState(false);
+  const [cheatSheetMaterialIds, setCheatSheetMaterialIds] = useState<number[]>([]);
+  const [cheatSheetReplace, setCheatSheetReplace] = useState(false);
+  const [generatingCheatSheet, setGeneratingCheatSheet] = useState(false);
 
   // Phase 2 States
   const [mockExams, setMockExams] = useState<MockExam[]>([]);
@@ -745,10 +803,16 @@ export default function SubjectPortal() {
   }
 
   useEffect(() => {
+    // Auth guard: no session -> login page
+    if (!getToken()) {
+      router.replace("/login");
+      return;
+    }
     setCurrentCardIndex(0);
     setIsFlipped(false);
     setQuizAnswers({});
     loadSubjectData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subjectId]);
 
   // Scroll chat to bottom when message arrives
@@ -788,7 +852,7 @@ export default function SubjectPortal() {
       }, 1000);
     } else if (examTimer === 0 && examTimerRunning) {
       setExamTimerRunning(false);
-      alert("Time's up! Submitting your mock exam answers automatically.");
+      toast("Time's up — submitting your answers.", "info");
       handleAutoSubmitExam();
     }
     return () => clearInterval(interval);
@@ -814,7 +878,7 @@ export default function SubjectPortal() {
       setMockExams(prev => prev.map(ex => ex.id === examId ? gradedExam : ex));
       setActiveExam(gradedExam);
       setExamTimerRunning(false);
-      alert("Exam graded successfully! Look below for detailed score, analytics and AI feedback.");
+      toast("Graded. Scroll down for your score and feedback.", "success");
       loadSubjectData();
     } catch (err) {
       console.error(err);
@@ -845,7 +909,7 @@ export default function SubjectPortal() {
           confidence_score: Math.min(100.0, subject.confidence_score + 10)
         });
       }
-      alert("Submissions recorded! (Graded via study planner fallback logic).");
+      toast("Answers recorded.", "success");
     } finally {
       setSubmittingExam(false);
     }
@@ -911,12 +975,12 @@ export default function SubjectPortal() {
       const updated = await api.addFormulaNote(formulaId, note.trim());
       setFormulas(prev => prev.map(f => f.id === formulaId ? { ...f, description: updated.description } : f));
       setFormulaNoteText(prev => ({ ...prev, [formulaId]: "" }));
-      alert("Custom study note saved!");
+      toast("Note saved.", "success");
     } catch {
       // Offline fallback
       setFormulas(prev => prev.map(f => f.id === formulaId ? { ...f, description: (f.description || "") + `\n\n*Student Study Note:* ${note}` } : f));
       setFormulaNoteText(prev => ({ ...prev, [formulaId]: "" }));
-      alert("Note appended successfully!");
+      toast("Note added.", "success");
     } finally {
       setSavingFormulaNote(null);
     }
@@ -1065,7 +1129,7 @@ export default function SubjectPortal() {
               loadSubjectData().catch(console.error);
             } else if (data.status === "failed") {
               eventSource.close();
-              alert(`AI Digestion failed: ${data.error || "Unknown error"}`);
+              toast(`Couldn't process that file: ${data.error || "unknown error"}`, "error");
               setUploading(false);
               setUploadStage(null);
               loadSubjectData().catch(console.error);
@@ -1096,7 +1160,7 @@ export default function SubjectPortal() {
       }
     } catch (err: any) {
       console.error(err);
-      alert(`Upload failed: ${err.message || "Please check backend is running."}`);
+      toast(`Upload failed: ${err.message || "is the server running?"}`, "error");
       setUploading(false);
       setUploadStage(null);
     }
@@ -1108,7 +1172,7 @@ export default function SubjectPortal() {
       setCompilingMap(true);
       const res = await api.generateKnowledgeMap(subjectId);
       setKnowledgeMap(res);
-      alert("AI synthesized curriculum connections successfully!");
+      toast("Connections mapped.", "success");
     } catch (err) {
       console.error(err);
       // Offline fallback mapping
@@ -1126,7 +1190,7 @@ export default function SubjectPortal() {
         }
         setKnowledgeMap({ nodes: materials, edges: fallEdges });
       }
-      alert("Connections synthesized (via study map fallback).");
+      toast("Connections mapped.", "success");
     } finally {
       setCompilingMap(false);
     }
@@ -1137,10 +1201,10 @@ export default function SubjectPortal() {
     try {
       await api.deleteMaterial(matId);
       await loadSubjectData();
-      alert("Material and corresponding index vectors deleted successfully.");
+      toast("Material deleted.", "success");
     } catch (err) {
       console.error(err);
-      alert("Failed to delete study material.");
+      toast("Couldn't delete the material.", "error");
     }
   }
 
@@ -1152,7 +1216,7 @@ export default function SubjectPortal() {
       await loadSubjectData();
     } catch (err) {
       console.error(err);
-      alert("Failed to rename study material.");
+      toast("Couldn't rename the material.", "error");
     }
   }
 
@@ -1190,7 +1254,7 @@ export default function SubjectPortal() {
         due_date: new Date().toISOString().split('T')[0]
       });
       setTasks(prev => [newTask, ...prev]);
-      alert("AI Coach added a dynamic study plan task!");
+      toast("Added a task to your plan.", "success");
     } catch {
       const fallbackTask: Task = {
         id: Date.now(),
@@ -1207,6 +1271,207 @@ export default function SubjectPortal() {
     }
   }
 
+  // ---------- Task CRUD (planner) ----------
+
+  async function handleDeleteTask(taskId: number) {
+    if (!confirm("Delete this task?")) return;
+    try {
+      await api.deleteTask(taskId);
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+    } catch {
+      toast("Couldn't delete the task.", "error");
+    }
+  }
+
+  function startEditTask(task: Task) {
+    setEditingTaskId(task.id);
+    setEditTaskTitle(task.title);
+    setEditTaskDesc(task.description || "");
+    setEditTaskDuration(task.duration_minutes);
+  }
+
+  async function handleSaveTaskEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (editingTaskId === null) return;
+    try {
+      const updated = await api.patchTask(editingTaskId, {
+        title: editTaskTitle,
+        description: editTaskDesc,
+        duration_minutes: editTaskDuration,
+      });
+      setTasks(prev => prev.map(t => (t.id === updated.id ? updated : t)));
+      setEditingTaskId(null);
+    } catch {
+      toast("Couldn't save the task.", "error");
+    }
+  }
+
+  async function handleCreateManualTask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newTaskTitle.trim()) return;
+    try {
+      const created = await api.createTask({
+        subject_id: subjectId,
+        title: newTaskTitle,
+        description: newTaskDesc,
+        duration_minutes: newTaskDuration,
+        due_date: new Date().toISOString().split("T")[0],
+      });
+      setTasks(prev => [created, ...prev]);
+      setNewTaskTitle("");
+      setNewTaskDesc("");
+      setNewTaskDuration(30);
+      setShowAddTask(false);
+    } catch {
+      toast("Couldn't create the task.", "error");
+    }
+  }
+
+  // ---------- Quiz CRUD ----------
+
+  async function handleDeleteQuiz(quizId: number) {
+    if (!confirm("Delete this quiz question?")) return;
+    try {
+      await api.deleteQuiz(quizId);
+      setQuizzes(prev => prev.filter(q => q.id !== quizId));
+    } catch {
+      toast("Couldn't delete the question.", "error");
+    }
+  }
+
+  function startEditQuiz(quiz: Quiz) {
+    setEditingQuizId(quiz.id);
+    setEditQuizQuestion(quiz.question);
+    let opts: string[] = [];
+    try { opts = quiz.options ? JSON.parse(quiz.options) : []; } catch { opts = []; }
+    setEditQuizOptions(opts.length ? opts : ["", "", "", ""]);
+    setEditQuizAnswer(quiz.correct_answer);
+  }
+
+  async function handleSaveQuizEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (editingQuizId === null) return;
+    const cleanOptions = editQuizOptions.map(o => o.trim()).filter(Boolean);
+    if (cleanOptions.length < 2) { toast("Add at least two options.", "error"); return; }
+    if (!cleanOptions.includes(editQuizAnswer)) { toast("Mark one option as the correct answer.", "error"); return; }
+    try {
+      const updated = await api.updateQuiz(editingQuizId, {
+        question: editQuizQuestion,
+        options: JSON.stringify(cleanOptions),
+        correct_answer: editQuizAnswer,
+      });
+      setQuizzes(prev => prev.map(q => (q.id === updated.id ? updated : q)));
+      setEditingQuizId(null);
+      setQuizAnswers({});
+    } catch {
+      toast("Couldn't save the question.", "error");
+    }
+  }
+
+  async function handleCreateManualQuiz(e: React.FormEvent) {
+    e.preventDefault();
+    const cleanOptions = newQuizOptions.map(o => o.trim()).filter(Boolean);
+    if (!newQuizQuestion.trim() || cleanOptions.length < 2) {
+      toast("Add a question and at least two options.", "error");
+      return;
+    }
+    try {
+      const created = await api.createQuiz(subjectId, {
+        question: newQuizQuestion,
+        options: JSON.stringify(cleanOptions),
+        correct_answer: cleanOptions[Math.min(newQuizCorrectIdx, cleanOptions.length - 1)],
+        type: "multiple_choice",
+      });
+      setQuizzes(prev => [created, ...prev]);
+      setNewQuizQuestion("");
+      setNewQuizOptions(["", "", "", ""]);
+      setNewQuizCorrectIdx(0);
+      setShowAddQuiz(false);
+    } catch {
+      toast("Couldn't create the question.", "error");
+    }
+  }
+
+  // ---------- Formula / cheat-sheet CRUD ----------
+
+  async function handleDeleteFormula(formulaId: number) {
+    if (!confirm("Delete this cheat-sheet entry?")) return;
+    try {
+      await api.deleteFormula(formulaId);
+      setFormulas(prev => prev.filter(f => f.id !== formulaId));
+    } catch {
+      toast("Couldn't delete the entry.", "error");
+    }
+  }
+
+  function startEditFormula(formula: Formula) {
+    setEditingFormulaId(formula.id);
+    setEditFormulaName(formula.name);
+    setEditFormulaLatex(formula.latex_code);
+    setEditFormulaDesc(formula.description || "");
+  }
+
+  async function handleSaveFormulaEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (editingFormulaId === null) return;
+    try {
+      const updated = await api.updateFormula(editingFormulaId, {
+        name: editFormulaName,
+        latex_code: editFormulaLatex,
+        description: editFormulaDesc,
+      });
+      setFormulas(prev => prev.map(f => (f.id === updated.id ? updated : f)));
+      setEditingFormulaId(null);
+    } catch {
+      toast("Couldn't save the entry.", "error");
+    }
+  }
+
+  async function handleCreateManualFormula(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newFormulaName.trim() || !newFormulaLatex.trim()) return;
+    try {
+      const created = await api.createFormula(subjectId, {
+        name: newFormulaName,
+        latex_code: newFormulaLatex,
+        description: newFormulaDesc,
+      });
+      setFormulas(prev => [...prev, created]);
+      setNewFormulaName("");
+      setNewFormulaLatex("");
+      setNewFormulaDesc("");
+      setShowAddFormula(false);
+    } catch {
+      toast("Couldn't create the entry.", "error");
+    }
+  }
+
+  async function handleGenerateCheatSheet() {
+    try {
+      setGeneratingCheatSheet(true);
+      const result = await api.generateCheatSheet(subjectId, cheatSheetMaterialIds, cheatSheetReplace);
+      setFormulas(result);
+      setShowCheatSheetModal(false);
+      setCheatSheetMaterialIds([]);
+      setCheatSheetReplace(false);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Cheat sheet generation failed.", "error");
+    } finally {
+      setGeneratingCheatSheet(false);
+    }
+  }
+
+  async function handleDeleteMockExam(examId: number) {
+    if (!confirm("Delete this mock exam and its questions?")) return;
+    try {
+      await api.deleteMockExam(examId);
+      setMockExams(prev => prev.filter(e2 => e2.id !== examId));
+      if (activeExam?.id === examId) setActiveExam(null);
+    } catch {
+      toast("Couldn't delete the exam.", "error");
+    }
+  }
+
   // Log study hours spent
   async function handleLogSession(e: React.FormEvent) {
     e.preventDefault();
@@ -1215,7 +1480,7 @@ export default function SubjectPortal() {
       await api.createStudySession(subjectId, sessionMinutes, sessionFocus, sessionNotes, sessionTitle);
       setSessionNotes("");
       await loadSubjectData();
-      alert("Focus Study Session logged! Great effort.");
+      toast("Session logged.", "success");
     } catch {
       // Local boost simulation
       if (subject) {
@@ -1225,7 +1490,7 @@ export default function SubjectPortal() {
         });
       }
       setSessionNotes("");
-      alert("Session logged locally! Overall confidence updated.");
+      toast("Session logged.", "success");
     } finally {
       setLoggingSession(false);
     }
@@ -1281,7 +1546,7 @@ export default function SubjectPortal() {
       setEditingMessageId(null);
     } catch (err) {
       console.error(err);
-      alert("Failed to edit message.");
+      toast("Couldn't edit the message.", "error");
     }
   }
 
@@ -1292,7 +1557,7 @@ export default function SubjectPortal() {
       setTutorMessages([]);
     } catch (err) {
       console.error(err);
-      alert("Failed to clear chat history.");
+      toast("Couldn't clear the chat.", "error");
     }
   }
 
@@ -1310,7 +1575,7 @@ export default function SubjectPortal() {
       if (currentCardIndex < flashcards.length - 1) {
         setCurrentCardIndex(prev => prev + 1);
       } else {
-        alert("Completed all outstanding Leitner reviews! Excellent proactive active recall!");
+        toast("You're through all the cards due today.", "success");
         setCurrentCardIndex(0);
       }
       loadSubjectData();
@@ -1331,7 +1596,7 @@ export default function SubjectPortal() {
       setEditingFlashcardId(null);
     } catch (err) {
       console.error(err);
-      alert("Failed to update flashcard");
+      toast("Couldn't save the card.", "error");
     }
   }
 
@@ -1344,7 +1609,7 @@ export default function SubjectPortal() {
       setFlashcardFront("");
       setFlashcardBack("");
       setShowAddFlashcard(false);
-      alert("Manual Flashcard created successfully!");
+      toast("Card added.", "success");
       loadSubjectData();
     } catch (err) {
       console.error(err);
@@ -1362,7 +1627,7 @@ export default function SubjectPortal() {
       setFlashcardFront("");
       setFlashcardBack("");
       setShowAddFlashcard(false);
-      alert("Flashcard saved (Local Offline Simulation)!");
+      toast("Card saved.", "success");
     }
   }
 
@@ -1374,7 +1639,7 @@ export default function SubjectPortal() {
       if (currentCardIndex >= Math.max(1, flashcards.length - 1)) {
         setCurrentCardIndex(0);
       }
-      alert("Flashcard deleted!");
+      toast("Card deleted.", "success");
     } catch (err) {
       console.error(err);
       // Local removal
@@ -1382,7 +1647,7 @@ export default function SubjectPortal() {
       if (currentCardIndex >= Math.max(1, flashcards.length - 1)) {
         setCurrentCardIndex(0);
       }
-      alert("Flashcard removed locally!");
+      toast("Card deleted.", "success");
     }
   }
 
@@ -1391,10 +1656,10 @@ export default function SubjectPortal() {
     try {
       const newFlashcards = await api.generateMoreActiveRecall(subjectId, 'flashcards', flashcardFilterMaterial, 3);
       setFlashcards(prev => [...newFlashcards, ...prev]);
-      alert(`Generated ${newFlashcards.length} new flashcards!`);
+      toast(`Added ${newFlashcards.length} new cards.`, "success");
     } catch (err) {
       console.error(err);
-      alert("Failed to generate more flashcards.");
+      toast("Couldn't generate more cards.", "error");
     } finally {
       setIsGeneratingMoreFlashcards(false);
     }
@@ -1405,10 +1670,10 @@ export default function SubjectPortal() {
     try {
       const newQuizzes = await api.generateMoreActiveRecall(subjectId, 'quizzes', flashcardFilterMaterial, 2);
       setQuizzes(prev => [...newQuizzes, ...prev]);
-      alert(`Generated ${newQuizzes.length} new quizzes!`);
+      toast(`Added ${newQuizzes.length} new questions.`, "success");
     } catch (err) {
       console.error(err);
-      alert("Failed to generate more quizzes.");
+      toast("Couldn't generate more questions.", "error");
     } finally {
       setIsGeneratingMoreQuizzes(false);
     }
@@ -1448,37 +1713,37 @@ export default function SubjectPortal() {
     return (
       <div className="min-h-screen flex items-center justify-center text-white">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-t-2 border-[#66FCF1] border-solid rounded-full animate-spin"></div>
-          <span className="text-xs text-[#8E9BAE] uppercase font-bold tracking-widest">Consulting Academic Coach...</span>
+          <div className="w-12 h-12 border-t-2 border-[#A7C4A0] border-solid rounded-full animate-spin"></div>
+          <span className="text-xs text-[#A29A8B] uppercase font-bold tracking-widest">Consulting Academic Coach...</span>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen pb-16 px-4 md:px-8 max-w-7xl mx-auto pt-6 selection:bg-[#66FCF1] selection:text-[#0B0C10]">
+    <div className="min-h-screen pb-16 px-4 md:px-8 max-w-7xl mx-auto pt-6 selection:bg-[#A7C4A0] selection:text-[#141312]">
 
       {/* ── Upload Progress Toast (bottom-right, non-blocking) ── */}
       {uploading && uploadStage && (
-        <div className="fixed bottom-6 right-6 z-50 w-80 bg-[#0d0f1a] border border-[#66FCF1]/30 rounded-2xl p-4 shadow-2xl shadow-[#66FCF1]/10 flex flex-col gap-3">
+        <div className="fixed bottom-6 right-6 z-50 w-80 bg-[#141312] border border-[#A7C4A0]/30 rounded-2xl p-4 shadow-2xl shadow-[#A7C4A0]/10 flex flex-col gap-3">
           <div className="flex items-center gap-3">
             <span className="text-2xl">{uploadStage.icon}</span>
             <div className="flex-1 min-w-0">
-              <p className="text-[9px] font-black text-[#66FCF1] uppercase tracking-widest">AI Digestion Engine</p>
+              <p className="text-[9px] font-black text-[#A7C4A0] uppercase tracking-widest">Reading your file</p>
               <p className="text-xs font-semibold text-white truncate">{uploadStage.label}</p>
             </div>
-            <span className="text-[10px] font-black text-[#66FCF1] shrink-0">{Math.round((uploadStage.step / 7) * 100)}%</span>
+            <span className="text-[10px] font-black text-[#A7C4A0] shrink-0">{Math.round((uploadStage.step / 7) * 100)}%</span>
           </div>
           {/* Progress bar */}
-          <div className="w-full h-1.5 bg-[#1a1d2e] rounded-full overflow-hidden">
+          <div className="w-full h-1.5 bg-[#1D1B19] rounded-full overflow-hidden">
             <div
               className="h-full rounded-full transition-all duration-700 ease-out relative overflow-hidden"
-              style={{ width: `${(uploadStage.step / 7) * 100}%`, background: "linear-gradient(90deg, #66FCF1, #45B7D1)" }}
+              style={{ width: `${(uploadStage.step / 7) * 100}%`, background: "linear-gradient(90deg, #A7C4A0, #A7C4A0)" }}
             >
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
             </div>
           </div>
-          <p className="text-[9px] text-[#8E9BAE]">Step {uploadStage.step} of 7 — you can browse freely while this runs</p>
+          <p className="text-[9px] text-[#A29A8B]">Step {uploadStage.step} of 7 — you can browse freely while this runs</p>
         </div>
       )}
 
@@ -1486,17 +1751,17 @@ export default function SubjectPortal() {
       <div className="mb-6 flex justify-between items-center">
         <Link 
           href="/"
-          className="flex items-center gap-1.5 text-xs text-[#8E9BAE] hover:text-white transition-all font-bold cursor-pointer"
+          className="flex items-center gap-1.5 text-xs text-[#A29A8B] hover:text-white transition-all font-bold cursor-pointer"
         >
-          <ArrowLeft className="w-4 h-4" /> Global Dashboard
+          <ArrowLeft className="w-4 h-4" /> All subjects
         </Link>
 
         {activeTab !== 'focus' && (
           <button
             onClick={() => setActiveTab('focus')}
-            className="flex items-center gap-1.5 bg-[#66FCF1]/10 border border-[#66FCF1]/30 text-[#66FCF1] px-3.5 py-1.5 rounded-lg text-xs font-black transition-all hover:bg-[#66FCF1] hover:text-[#0B0C10] cursor-pointer"
+            className="flex items-center gap-1.5 bg-[#A7C4A0]/10 border border-[#A7C4A0]/30 text-[#A7C4A0] px-3.5 py-1.5 rounded-lg text-xs font-black transition-all hover:bg-[#A7C4A0] hover:text-[#141312] cursor-pointer"
           >
-            <Zap className="w-3.5 h-3.5" /> Start Focus Session
+            <Zap className="w-3.5 h-3.5" /> Focus mode
           </button>
         )}
       </div>
@@ -1504,66 +1769,57 @@ export default function SubjectPortal() {
       {activeTab !== 'focus' ? (
         <>
           {/* Dashboard Summary Card */}
-          <div className="glass rounded-3xl p-6 md:p-8 border border-[#222634] mb-8 relative overflow-hidden">
+          <div
+            className="glass rounded-xl p-6 md:p-8 border border-[#34302B] mb-8 relative overflow-hidden"
+          >
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 relative z-10">
               <div>
-                <span className={`text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${
-                  subject.urgency_status === 'critical' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
-                  subject.urgency_status === 'high' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
-                  'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                }`}>
-                  {subject.urgency_status} urgency
-                </span>
-                <h1 className="text-3xl font-extrabold mt-3 tracking-tight">{subject.name}</h1>
-                <p className="text-xs text-[#8E9BAE] mt-1.5 flex items-center gap-1.5">
-                  <CalendarDays className="w-3.5 h-3.5" /> Exam Scheduled: <span className="text-white font-bold">{subject.exam_date || "Not set"}</span>
+                <h1 className="font-display text-3xl font-semibold tracking-tight text-[#ECE6DA]">{subject.name}</h1>
+                <p className="text-xs text-[#A29A8B] mt-2 flex items-center gap-1.5">
+                  <CalendarDays className="w-3.5 h-3.5" />
+                  {subject.exam_date
+                    ? <>Exam on <span className="text-[#ECE6DA] font-medium">{subject.exam_date}</span></>
+                    : "No exam date set yet"}
                 </p>
               </div>
 
               {/* Progress and Stats Row */}
-              <div className="grid grid-cols-3 gap-6 border-t md:border-t-0 md:border-l border-[#222634] pt-6 md:pt-0 md:pl-8 min-w-[280px]">
+              <div className="grid grid-cols-3 gap-6 border-t md:border-t-0 md:border-l border-[#34302B] pt-6 md:pt-0 md:pl-8 min-w-[300px]">
                 <div className="text-left">
-                  <span className="text-[10px] text-[#8E9BAE] uppercase font-bold tracking-wider block">Confidence</span>
-                  <span className="text-2xl font-black text-[#66FCF1]">{subject.confidence_score}%</span>
+                  <span className="text-[10px] text-[#A29A8B] uppercase font-medium tracking-wider block mb-0.5">
+                    {(() => { const d = daysUntil(subject.exam_date); return d === null ? "Countdown" : "Days left"; })()}
+                  </span>
+                  <span className="font-display tnum text-2xl font-semibold text-[#ECE6DA]">
+                    {(() => { const d = daysUntil(subject.exam_date); return d === null ? "—" : d < 0 ? "—" : d; })()}
+                  </span>
                 </div>
 
                 <div className="text-left">
-                  <span className="text-[10px] text-[#8E9BAE] uppercase font-bold tracking-wider block">Pending Tasks</span>
-                  <span className="text-2xl font-black text-white">{tasks.filter(t => t.status === 'pending').length}</span>
+                  <span className="text-[10px] text-[#A29A8B] uppercase font-medium tracking-wider block mb-0.5">Confidence</span>
+                  <span className="font-display tnum text-2xl font-semibold text-[#A7C4A0]">{subject.confidence_score}%</span>
                 </div>
 
                 <div className="text-left">
-                  <span className="text-[10px] text-[#8E9BAE] uppercase font-bold tracking-wider block">Study Left</span>
-                  <span className="text-2xl font-black text-[#8E9BAE]">{subject.hours_remaining}h</span>
+                  <span className="text-[10px] text-[#A29A8B] uppercase font-medium tracking-wider block mb-0.5">To do</span>
+                  <span className="font-display tnum text-2xl font-semibold text-[#ECE6DA]">{tasks.filter(t => t.status === 'pending').length}</span>
                 </div>
               </div>
-            </div>
-            {/* Background design overlay */}
-            <div className="absolute right-0 top-0 text-[#66FCF1]/5 -mr-16 -mt-16 pointer-events-none select-none">
-              <Brain className="w-64 h-64" />
             </div>
           </div>
 
           {/* Sub-Tabs Selector Header */}
-          <nav className="flex border-b border-[#222634] mb-8 gap-1 overflow-x-auto pb-0.5">
+          <nav className="flex border-b border-[#34302B] mb-8 gap-1 overflow-x-auto pb-0.5">
             {(['overview', 'map', 'planner', 'tutor', 'revision', 'exams', 'cheat-sheet', 'notes'] as TabType[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-5 py-3.5 text-xs font-black uppercase tracking-wider border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-                  activeTab === tab 
-                    ? 'border-[#66FCF1] text-white bg-white/[0.02]' 
-                    : 'border-transparent text-[#8E9BAE] hover:text-white hover:bg-white/[0.01]'
+                className={`px-4 py-3 text-sm border-b-2 -mb-px transition-colors cursor-pointer whitespace-nowrap ${
+                  activeTab === tab
+                    ? 'border-[#A7C4A0] text-[#ECE6DA] font-semibold'
+                    : 'border-transparent text-[#A29A8B] hover:text-[#ECE6DA] font-medium'
                 }`}
               >
-                {tab === 'overview' && 'Study Materials & Ingestion'}
-                {tab === 'map' && 'Curriculum Connection Map'}
-                {tab === 'notes' && 'Notepad'}
-                {tab === 'planner' && 'Adaptive Study Planner'}
-                {tab === 'tutor' && 'AI RAG Tutor'}
-                {tab === 'revision' && 'Active Recall & Spaced Revision'}
-                {tab === 'exams' && 'Mock Exam Canvas'}
-                {tab === 'cheat-sheet' && 'Formula & Cheat Sheet'}
+                {tabLabels[tab]}
               </button>
             ))}
           </nav>
@@ -1573,10 +1829,10 @@ export default function SubjectPortal() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* File Uploader and lists */}
               <div className="lg:col-span-1 flex flex-col gap-6">
-                <div className="glass rounded-2xl p-6 border border-[#222634]">
-                  <h2 className="text-base font-extrabold mb-4 text-white">Ingest Study Material</h2>
+                <div className="glass rounded-2xl p-6 border border-[#34302B]">
+                  <h2 className="font-display text-base font-semibold mb-4 text-[#ECE6DA]">Add your materials</h2>
                   
-                  <label className="border-2 border-dashed border-[#222634] hover:border-[#66FCF1]/40 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all bg-[#0B0C10]/40 group">
+                  <label className="border-2 border-dashed border-[#34302B] hover:border-[#A7C4A0]/40 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-all bg-[#141312]/40 group">
                     <input 
                       type="file" 
                       accept=".pdf,.docx,.pptx,.ppt,.txt"
@@ -1584,18 +1840,18 @@ export default function SubjectPortal() {
                       className="hidden" 
                       disabled={uploading}
                     />
-                    <UploadCloud className={`w-10 h-10 mb-2.5 transition-all ${uploading ? "text-[#66FCF1] animate-pulse" : "text-[#8E9BAE] group-hover:text-[#66FCF1]"}`} />
+                    <UploadCloud className={`w-10 h-10 mb-2.5 transition-all ${uploading ? "text-[#A7C4A0] animate-pulse" : "text-[#A29A8B] group-hover:text-[#A7C4A0]"}`} />
                     <span className="text-xs font-extrabold text-white mb-1">
-                      {uploading ? uploadStage?.label ?? "Processing..." : "Upload PDFs, DOCX, PPTX, slides"}
+                      {uploading ? uploadStage?.label ?? "Processing..." : "Drop a PDF, slides, or notes"}
                     </span>
-                    <span className="text-[10px] text-[#8E9BAE]">Max size 20MB. Fully structured by AI.</span>
+                    <span className="text-[10px] text-[#A29A8B]">Up to 20MB. I’ll read it and pull out the key parts.</span>
                     {/* Inline progress bar */}
                     {uploading && uploadStage && (
                       <div className="w-full mt-3">
-                        <div className="w-full h-1 bg-[#1a1d2e] rounded-full overflow-hidden">
+                        <div className="w-full h-1 bg-[#1D1B19] rounded-full overflow-hidden">
                           <div
                             className="h-full rounded-full transition-all duration-700 ease-out relative overflow-hidden"
-                            style={{ width: `${(uploadStage!.step / 7) * 100}%`, background: "linear-gradient(90deg, #66FCF1, #45B7D1)" }}
+                            style={{ width: `${(uploadStage!.step / 7) * 100}%`, background: "linear-gradient(90deg, #A7C4A0, #A7C4A0)" }}
                           >
                             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
                           </div>
@@ -1605,17 +1861,17 @@ export default function SubjectPortal() {
                   </label>
                 </div>
 
-                <div className="glass rounded-2xl p-6 border border-[#222634]">
-                  <h2 className="text-base font-extrabold mb-4 text-white">Active Materials ({materials.length})</h2>
+                <div className="glass rounded-2xl p-6 border border-[#34302B]">
+                  <h2 className="font-display text-base font-semibold mb-4 text-[#ECE6DA]">Your materials ({materials.length})</h2>
                   <div className="flex flex-col gap-3">
                     {materials.map((mat) => (
-                      <div key={mat.id} className="bg-[#1C1F2E] border border-[#2B3045] rounded-xl p-3.5 flex items-start justify-between gap-3 group">
+                      <div key={mat.id} className="bg-[#262320] border border-[#34302B] rounded-xl p-3.5 flex items-start justify-between gap-3 group">
                         <div className="flex items-start gap-3 overflow-hidden">
-                          <FileText className="w-5 h-5 text-[#66FCF1] shrink-0 mt-0.5" />
+                          <FileText className="w-5 h-5 text-[#A7C4A0] shrink-0 mt-0.5" />
                           <div className="overflow-hidden">
                             <h3 className="text-xs font-black text-white truncate" title={mat.name}>{mat.name}</h3>
-                            <div className="flex gap-2 text-[9px] text-[#8E9BAE] mt-1.5">
-                              <span className="bg-[#66FCF1]/10 text-[#66FCF1] px-1.5 py-0.5 rounded uppercase font-bold">
+                            <div className="flex gap-2 text-[9px] text-[#A29A8B] mt-1.5">
+                              <span className="bg-[#A7C4A0]/10 text-[#A7C4A0] px-1.5 py-0.5 rounded uppercase font-bold">
                                 Complexity Lvl {mat.learning_complexity}
                               </span>
                               <span className="bg-orange-500/10 text-orange-400 px-1.5 py-0.5 rounded uppercase font-bold">
@@ -1629,14 +1885,14 @@ export default function SubjectPortal() {
                           <button
                             onClick={() => handleRenameMaterial(mat.id, mat.name)}
                             title="Rename Material"
-                            className="text-[#8E9BAE] hover:text-[#66FCF1] p-1 cursor-pointer"
+                            className="text-[#A29A8B] hover:text-[#A7C4A0] p-1 cursor-pointer"
                           >
                             <Edit className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => handleDeleteMaterial(mat.id)}
                             title="Delete Material"
-                            className="text-[#8E9BAE] hover:text-red-400 p-1 cursor-pointer"
+                            className="text-[#A29A8B] hover:text-red-400 p-1 cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1644,7 +1900,7 @@ export default function SubjectPortal() {
                       </div>
                     ))}
                     {materials.length === 0 && (
-                      <div className="text-center py-6 text-xs text-[#8E9BAE]">
+                      <div className="text-center py-6 text-xs text-[#A29A8B]">
                         No materials uploaded yet. Ingest slides to generate summaries!
                       </div>
                     )}
@@ -1655,35 +1911,35 @@ export default function SubjectPortal() {
               {/* Ingestion Detailed Analysis View */}
               <div className="lg:col-span-2 flex flex-col gap-6">
                 {materials.map((mat) => (
-                  <div key={mat.id} className="glass rounded-2xl p-6 border border-[#222634] flex flex-col gap-5">
+                  <div key={mat.id} className="glass rounded-2xl p-6 border border-[#34302B] flex flex-col gap-5">
                     <div>
                       <div className="flex justify-between items-center mb-1">
-                        <h2 className="text-lg font-black text-[#66FCF1]">{mat.name} Ingestion Analysis</h2>
-                        <span className="text-[10px] text-[#8E9BAE]">Processed by Summarization Agent</span>
+                        <h2 className="font-display text-lg font-semibold text-[#ECE6DA]">{mat.name}</h2>
+                        <span className="text-[10px] text-[#A29A8B]">Processed by Summarization Agent</span>
                       </div>
-                      <p className="text-xs text-[#8E9BAE]">Structured outline mapping out fundamental topics for your final exams.</p>
+                      <p className="text-xs text-[#A29A8B]">Structured outline mapping out fundamental topics for your final exams.</p>
                     </div>
 
                     {/* Summary MD Section */}
-                    <div className="bg-[#0B0C10]/60 rounded-xl p-5 border border-[#222634] prose prose-invert max-w-none text-xs leading-relaxed text-[#E2E8F0]">
+                    <div className="bg-[#141312]/60 rounded-xl p-5 border border-[#34302B] prose prose-invert max-w-none text-xs leading-relaxed text-[#ECE6DA]">
                       {renderFormattedMessage(mat.summary || "No summary compiled yet.")}
                     </div>
 
                     {/* Extracted Key Concepts cards */}
                     {mat.key_concepts && (
                       <div>
-                        <h3 className="text-xs font-bold text-[#8E9BAE] uppercase tracking-wider mb-3">Extracted Core Concepts</h3>
+                        <h3 className="text-xs font-bold text-[#A29A8B] uppercase tracking-wider mb-3">Extracted Core Concepts</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                           {JSON.parse(mat.key_concepts).map((concept: any, idx: number) => (
-                            <div key={idx} className="bg-[#1C1F2E]/80 border border-[#2B3045] rounded-xl p-4 flex flex-col justify-between">
+                            <div key={idx} className="bg-[#262320]/80 border border-[#34302B] rounded-xl p-4 flex flex-col justify-between">
                               <div>
                                 <div className="flex justify-between items-center mb-1.5">
                                   <h4 className="font-extrabold text-xs text-white truncate max-w-[200px]">{concept.concept}</h4>
-                                  <span className="bg-[#66FCF1]/10 text-[#66FCF1] text-[9px] font-black px-1.5 py-0.5 rounded">
+                                  <span className="bg-[#A7C4A0]/10 text-[#A7C4A0] text-[9px] font-black px-1.5 py-0.5 rounded">
                                     Difficulty Lvl {concept.difficulty_weight}
                                   </span>
                                 </div>
-                                <div className="text-[11px] text-[#8E9BAE] leading-relaxed">
+                                <div className="text-[11px] text-[#A29A8B] leading-relaxed">
                                   {renderFormattedMessage(concept.explanation)}
                                 </div>
                               </div>
@@ -1696,7 +1952,7 @@ export default function SubjectPortal() {
                 ))}
 
                 {materials.length === 0 && (
-                  <div className="glass rounded-2xl p-10 border border-[#222634] text-center text-xs text-[#8E9BAE]">
+                  <div className="glass rounded-2xl p-10 border border-[#34302B] text-center text-xs text-[#A29A8B]">
                     Please upload standard slides or lecture PDF files in the Ingest widget on the left to review key concepts.
                   </div>
                 )}
@@ -1709,56 +1965,56 @@ export default function SubjectPortal() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Dynamic Interactive SVG Canvas */}
               <div className="lg:col-span-2 flex flex-col gap-6">
-                <div className="glass rounded-3xl p-6 border border-[#222634] flex flex-col gap-4 relative overflow-hidden">
+                <div className="glass rounded-3xl p-6 border border-[#34302B] flex flex-col gap-4 relative overflow-hidden">
                   <div className="flex justify-between items-center z-10">
                     <div>
-                      <h2 className="text-lg font-black text-white flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-[#66FCF1] animate-pulse" /> Knowledge Connection Network
+                      <h2 className="font-display text-lg font-semibold text-[#ECE6DA] flex items-center gap-2">
+                        How your materials connect
                       </h2>
-                      <p className="text-xs text-[#8E9BAE] mt-0.5">Visualize logical sequence, prerequisite flows, and deep lecture interconnections.</p>
+                      <p className="text-xs text-[#A29A8B] mt-0.5">Visualize logical sequence, prerequisite flows, and deep lecture interconnections.</p>
                     </div>
 
                     <button
                       onClick={handleGenerateKnowledgeMap}
                       disabled={compilingMap}
-                      className="flex items-center gap-1.5 bg-[#66FCF1]/10 border border-[#66FCF1]/30 text-[#66FCF1] hover:bg-[#66FCF1] hover:text-[#0B0C10] transition-all text-xs font-black px-4 py-2 rounded-xl cursor-pointer disabled:opacity-50"
+                      className="flex items-center gap-1.5 bg-[#A7C4A0]/10 border border-[#A7C4A0]/30 text-[#A7C4A0] hover:bg-[#A7C4A0] hover:text-[#141312] transition-all text-xs font-black px-4 py-2 rounded-xl cursor-pointer disabled:opacity-50"
                     >
                       {compilingMap ? "Analyzing lectures..." : "Regenerate AI Map"}
                     </button>
                   </div>
 
                   {compilingMap ? (
-                    <div className="h-[450px] flex flex-col items-center justify-center gap-4 bg-[#0B0C10]/40 rounded-2xl border border-[#222634]/60">
+                    <div className="h-[450px] flex flex-col items-center justify-center gap-4 bg-[#141312]/40 rounded-2xl border border-[#34302B]/60">
                       <div className="relative">
-                        <div className="w-16 h-16 border-4 border-[#66FCF1]/10 border-t-[#66FCF1] rounded-full animate-spin"></div>
-                        <div className="absolute inset-0 flex items-center justify-center text-[#66FCF1]">
+                        <div className="w-16 h-16 border-4 border-[#A7C4A0]/10 border-t-[#A7C4A0] rounded-full animate-spin"></div>
+                        <div className="absolute inset-0 flex items-center justify-center text-[#A7C4A0]">
                           <Brain className="w-6 h-6 animate-pulse" />
                         </div>
                       </div>
                       <span className="text-xs font-black text-white uppercase tracking-widest animate-pulse">Running Deep Ingestion Cross-Reference...</span>
-                      <span className="text-[10px] text-[#8E9BAE] text-center max-w-[300px]">AI is extracting connections and mapping supplementary case studies across your lectures.</span>
+                      <span className="text-[10px] text-[#A29A8B] text-center max-w-[300px]">AI is extracting connections and mapping supplementary case studies across your lectures.</span>
                     </div>
                   ) : !knowledgeMap || !knowledgeMap.nodes || knowledgeMap.nodes.length === 0 ? (
-                    <div className="h-[450px] flex flex-col items-center justify-center gap-4 bg-[#0B0C10]/40 rounded-2xl border border-[#222634]/60 text-center p-6">
-                      <Brain className="w-12 h-12 text-[#8E9BAE]" />
+                    <div className="h-[450px] flex flex-col items-center justify-center gap-4 bg-[#141312]/40 rounded-2xl border border-[#34302B]/60 text-center p-6">
+                      <Brain className="w-12 h-12 text-[#A29A8B]" />
                       <div>
-                        <h3 className="text-sm font-extrabold text-white">No Connections Analyzed</h3>
-                        <p className="text-xs text-[#8E9BAE] mt-1 max-w-[340px]">Synthesize uploaded lecture slides to automatically map their prerequisites and construct research supplements!</p>
+                        <h3 className="font-display text-sm font-semibold text-[#ECE6DA]">No connections yet</h3>
+                        <p className="text-xs text-[#A29A8B] mt-1 max-w-[340px]">Synthesize uploaded lecture slides to automatically map their prerequisites and construct research supplements!</p>
                       </div>
                       <button
                         onClick={handleGenerateKnowledgeMap}
-                        className="bg-[#66FCF1] text-[#0B0C10] hover:bg-[#45E3D8] transition-all text-xs font-black px-5 py-2.5 rounded-xl cursor-pointer"
+                        className="bg-[#A7C4A0] text-[#141312] hover:bg-[#90AE88] transition-all text-xs font-black px-5 py-2.5 rounded-xl cursor-pointer"
                       >
                         Synthesize Curriculum Map
                       </button>
                     </div>
                   ) : (
-                    <div className="relative h-[480px] bg-[#0B0C10]/60 rounded-2xl border border-[#222634]/80 overflow-hidden group">
+                    <div className="relative h-[480px] bg-[#141312]/60 rounded-2xl border border-[#34302B]/80 overflow-hidden group">
                       <svg className="w-full h-full cursor-grab active:cursor-grabbing select-none" viewBox="0 0 640 480">
                         <defs>
                           {/* Visual Grid Background */}
                           <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
-                            <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#222634" strokeWidth="0.8" />
+                            <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#34302B" strokeWidth="0.8" />
                           </pattern>
                           {/* Neon Glow Filter */}
                           <filter id="neon-glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -1770,7 +2026,7 @@ export default function SubjectPortal() {
                           </filter>
                           {/* Arrow Marker */}
                           <marker id="arrow" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                            <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#66FCF1" />
+                            <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#A7C4A0" />
                           </marker>
                         </defs>
 
@@ -1815,7 +2071,7 @@ export default function SubjectPortal() {
                                     {/* Main edge path */}
                                     <path
                                       d={`M ${edge.source.x} ${edge.source.y} L ${edge.target.x} ${edge.target.y}`}
-                                      stroke={isSelected ? "#66FCF1" : "#1f2538"}
+                                      stroke={isSelected ? "#A7C4A0" : "#262320"}
                                       strokeWidth={isSelected ? "2.5" : "1.5"}
                                       strokeDasharray={edge.connection_type === "Prerequisite" ? "4 3" : "none"}
                                       className={edge.connection_type === "Prerequisite" ? "animate-[dash_20s_linear_infinite]" : ""}
@@ -1828,15 +2084,15 @@ export default function SubjectPortal() {
                                       cx={(edge.source.x + edge.target.x) / 2}
                                       cy={(edge.source.y + edge.target.y) / 2}
                                       r="7"
-                                      fill="#1C1F2E"
-                                      stroke={isSelected ? "#66FCF1" : "#2B3045"}
+                                      fill="#262320"
+                                      stroke={isSelected ? "#A7C4A0" : "#34302B"}
                                       strokeWidth="1"
                                     />
                                     <text
                                       x={(edge.source.x + edge.target.x) / 2}
                                       y={(edge.source.y + edge.target.y) / 2 + 2}
                                       textAnchor="middle"
-                                      fill="#8E9BAE"
+                                      fill="#A29A8B"
                                       fontSize="6"
                                       fontWeight="bold"
                                     >
@@ -1855,7 +2111,7 @@ export default function SubjectPortal() {
                                 // Color nodes by complexity
                                 const complexityColor = 
                                   node.learning_complexity >= 5 ? "#F97316" : // high complexity - Orange
-                                  node.learning_complexity >= 3 ? "#06B6D4" : // medium complexity - Cyan
+                                  node.learning_complexity >= 3 ? "#A7C4A0" : // medium complexity - Cyan
                                   "#10B981"; // low complexity - Emerald
 
                                 return (
@@ -1877,9 +2133,9 @@ export default function SubjectPortal() {
                                       cx={node.x}
                                       cy={node.y}
                                       r="14"
-                                      fill="#1C1F2E"
+                                      fill="#262320"
                                       stroke={
-                                        isSelected ? "#66FCF1" : 
+                                        isSelected ? "#A7C4A0" : 
                                         isPrereqOfSelected ? "#E11D48" : 
                                         isExtensionOfSelected ? "#10B981" : 
                                         complexityColor
@@ -1891,7 +2147,7 @@ export default function SubjectPortal() {
                                     <path
                                       d={`M ${node.x - 3.5} ${node.y - 5} L ${node.x + 1} ${node.y - 5} L ${node.x + 4.5} ${node.y - 1.5} L ${node.x + 4.5} ${node.y + 5} L ${node.x - 3.5} ${node.y + 5} Z`}
                                       fill="none"
-                                      stroke={isSelected ? "#66FCF1" : "#8E9BAE"}
+                                      stroke={isSelected ? "#A7C4A0" : "#A29A8B"}
                                       strokeWidth="1"
                                     />
                                     {/* Lecture index label text */}
@@ -1899,10 +2155,10 @@ export default function SubjectPortal() {
                                       x={node.x}
                                       y={node.y + 25}
                                       textAnchor="middle"
-                                      fill={isSelected ? "#66FCF1" : "#E2E8F0"}
+                                      fill={isSelected ? "#A7C4A0" : "#ECE6DA"}
                                       fontSize="8"
                                       fontWeight="bold"
-                                      className="bg-[#0B0C10] px-1 rounded"
+                                      className="bg-[#141312] px-1 rounded"
                                     >
                                       {node.name.replace(/_|-/g, " ").replace(/\.\w+$/, "").substring(0, 16)}
                                     </text>
@@ -1914,19 +2170,19 @@ export default function SubjectPortal() {
                         })()}
                       </svg>
                       {/* Floating Legend Badge */}
-                      <div className="absolute bottom-4 left-4 bg-[#1C1F2E]/90 border border-[#2B3045] rounded-xl p-3 flex flex-col gap-1.5 text-[9px] pointer-events-none">
+                      <div className="absolute bottom-4 left-4 bg-[#262320]/90 border border-[#34302B] rounded-xl p-3 flex flex-col gap-1.5 text-[9px] pointer-events-none">
                         <span className="font-extrabold text-white mb-0.5 uppercase tracking-wider">Complexity Legend</span>
                         <div className="flex items-center gap-1.5">
                           <span className="w-2.5 h-2.5 rounded-full bg-[#F97316]"></span>
-                          <span className="text-[#8E9BAE]">High Complexity (Trap-dense)</span>
+                          <span className="text-[#A29A8B]">High Complexity (Trap-dense)</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full bg-[#06B6D4]"></span>
-                          <span className="text-[#8E9BAE]">Medium Complexity</span>
+                          <span className="w-2.5 h-2.5 rounded-full bg-[#A7C4A0]"></span>
+                          <span className="text-[#A29A8B]">Medium Complexity</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span className="w-2.5 h-2.5 rounded-full bg-[#10B981]"></span>
-                          <span className="text-[#8E9BAE]">Foundational</span>
+                          <span className="text-[#A29A8B]">Foundational</span>
                         </div>
                       </div>
                     </div>
@@ -1936,54 +2192,54 @@ export default function SubjectPortal() {
 
               {/* Slide-out Sidebar Drawer Detail Panel */}
               <div className="lg:col-span-1 flex flex-col gap-6">
-                <div className="glass rounded-3xl p-6 border border-[#222634] flex flex-col gap-4 min-h-[480px] justify-between">
+                <div className="glass rounded-3xl p-6 border border-[#34302B] flex flex-col gap-4 min-h-[480px] justify-between">
                   {selectedNode ? (
                     <div className="flex flex-col gap-4 overflow-y-auto max-h-[500px] pr-1">
                       <div className="flex justify-between items-start">
                         <div>
-                          <span className="bg-[#66FCF1]/10 text-[#66FCF1] border border-[#66FCF1]/20 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                          <span className="bg-[#A7C4A0]/10 text-[#A7C4A0] border border-[#A7C4A0]/20 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
                             Lecture Node Detail
                           </span>
                           <h3 className="text-base font-extrabold text-white mt-1.5 leading-snug">{selectedNode.name}</h3>
                         </div>
                         <button
                           onClick={() => setSelectedNode(null)}
-                          className="text-[#8E9BAE] hover:text-white cursor-pointer"
+                          className="text-[#A29A8B] hover:text-white cursor-pointer"
                         >
                           <X className="w-4 h-4" />
                         </button>
                       </div>
 
-                      <div className="border-t border-[#222634] pt-3 flex flex-col gap-3">
+                      <div className="border-t border-[#34302B] pt-3 flex flex-col gap-3">
                         <div className="flex gap-2">
                           <span className="bg-orange-500/10 text-orange-400 text-[9px] font-black px-2 py-0.5 rounded">
                             Importance Lvl {selectedNode.importance_level}
                           </span>
-                          <span className="bg-[#06B6D4]/10 text-[#06B6D4] text-[9px] font-black px-2 py-0.5 rounded">
+                          <span className="bg-[#A7C4A0]/10 text-[#A7C4A0] text-[9px] font-black px-2 py-0.5 rounded">
                             Complexity Lvl {selectedNode.learning_complexity}
                           </span>
                         </div>
 
                         {/* Standard Summary */}
                         <div>
-                          <h4 className="text-[10px] text-[#8E9BAE] font-black uppercase tracking-wider">Lecture Outline</h4>
-                          <div className="text-xs text-[#E2E8F0] mt-1 bg-[#0B0C10]/30 p-3 rounded-xl border border-[#222634] leading-relaxed">
+                          <h4 className="text-[10px] text-[#A29A8B] font-black uppercase tracking-wider">Lecture Outline</h4>
+                          <div className="text-xs text-[#ECE6DA] mt-1 bg-[#141312]/30 p-3 rounded-xl border border-[#34302B] leading-relaxed">
                             {renderFormattedMessage(selectedNode.summary || "No outline summary compiled.")}
                           </div>
                         </div>
 
                         {/* Deep Research Supplement */}
                         <div>
-                          <h4 className="text-[10px] text-[#66FCF1] font-black uppercase tracking-wider flex items-center gap-1">
-                            <Sparkles className="w-3.5 h-3.5 animate-pulse" /> Advanced Deep Research Supplement
+                          <h4 className="text-[10px] text-[#A7C4A0] font-black uppercase tracking-wider flex items-center gap-1">
+                            Deeper research notes
                           </h4>
                           {selectedNode.deep_research_summary ? (
-                            <div className="text-xs text-[#E2E8F0] mt-1.5 bg-[#0B0C10]/60 p-4 rounded-xl border border-[#222634] leading-relaxed prose prose-invert font-sans">
+                            <div className="text-xs text-[#ECE6DA] mt-1.5 bg-[#141312]/60 p-4 rounded-xl border border-[#34302B] leading-relaxed prose prose-invert font-sans">
                               {renderFormattedMessage(selectedNode.deep_research_summary)}
                             </div>
                           ) : (
-                            <div className="mt-1.5 p-4 rounded-xl bg-[#0B0C10]/30 border border-[#222634] text-center">
-                              <p className="text-[10px] text-[#8E9BAE] leading-normal mb-2.5">
+                            <div className="mt-1.5 p-4 rounded-xl bg-[#141312]/30 border border-[#34302B] text-center">
+                              <p className="text-[10px] text-[#A29A8B] leading-normal mb-2.5">
                                 AI has not conducted deep hardware-mechanics research on this lecture yet.
                               </p>
                               <button
@@ -1996,9 +2252,9 @@ export default function SubjectPortal() {
                                     // re-acquire selected node
                                     const updatedNode = materials.find(m => m.id === selectedNode.id);
                                     if (updatedNode) setSelectedNode(updatedNode);
-                                    alert("Supplementary under-the-hood technical research completed!");
+                                    toast("Deeper research notes ready.", "success");
                                   } catch (err) {
-                                    alert("Successfully refreshed and loaded supplementary research materials!");
+                                    toast("Research notes refreshed.", "success");
                                     // simulated local fallback
                                     setSelectedNode({
                                       ...selectedNode,
@@ -2008,7 +2264,7 @@ export default function SubjectPortal() {
                                     setCompilingMap(false);
                                   }
                                 }}
-                                className="bg-[#66FCF1]/10 border border-[#66FCF1]/30 hover:bg-[#66FCF1] hover:text-[#0B0C10] text-[#66FCF1] transition-all text-[10px] font-black px-3.5 py-1.5 rounded-lg cursor-pointer"
+                                className="bg-[#A7C4A0]/10 border border-[#A7C4A0]/30 hover:bg-[#A7C4A0] hover:text-[#141312] text-[#A7C4A0] transition-all text-[10px] font-black px-3.5 py-1.5 rounded-lg cursor-pointer"
                               >
                                 Compile Deep Supplement
                               </button>
@@ -2021,34 +2277,34 @@ export default function SubjectPortal() {
                     <div className="flex flex-col gap-4">
                       <div className="flex justify-between items-start">
                         <div>
-                          <span className="bg-[#66FCF1]/10 text-[#66FCF1] border border-[#66FCF1]/20 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                          <span className="bg-[#A7C4A0]/10 text-[#A7C4A0] border border-[#A7C4A0]/20 text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
                             Relationship edge Detail
                           </span>
                           <h3 className="text-base font-extrabold text-white mt-1.5 leading-snug">
                             {selectedEdge.source.name.replace(/_|-/g, " ").replace(/\.\w+$/, "")} 
-                            <span className="text-[#66FCF1] px-1 bg-[#66FCF1]/10 rounded mx-1.5">→</span>
+                            <span className="text-[#A7C4A0] px-1 bg-[#A7C4A0]/10 rounded mx-1.5">→</span>
                             {selectedEdge.target.name.replace(/_|-/g, " ").replace(/\.\w+$/, "")}
                           </h3>
                         </div>
                         <button
                           onClick={() => setSelectedEdge(null)}
-                          className="text-[#8E9BAE] hover:text-white cursor-pointer"
+                          className="text-[#A29A8B] hover:text-white cursor-pointer"
                         >
                           <X className="w-4 h-4" />
                         </button>
                       </div>
 
-                      <div className="border-t border-[#222634] pt-3 flex flex-col gap-3.5">
+                      <div className="border-t border-[#34302B] pt-3 flex flex-col gap-3.5">
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-[#8E9BAE] font-bold block uppercase tracking-wider">Connection Type:</span>
-                          <span className="bg-[#66FCF1]/10 text-[#66FCF1] text-[9px] font-black px-2 py-0.5 rounded uppercase">
+                          <span className="text-[10px] text-[#A29A8B] font-bold block uppercase tracking-wider">Connection Type:</span>
+                          <span className="bg-[#A7C4A0]/10 text-[#A7C4A0] text-[9px] font-black px-2 py-0.5 rounded uppercase">
                             {selectedEdge.connection_type}
                           </span>
                         </div>
 
                         <div>
-                          <h4 className="text-[10px] text-[#8E9BAE] font-black uppercase tracking-wider">AI Pedagogical Explanation</h4>
-                          <div className="text-xs text-[#E2E8F0] mt-1.5 bg-[#0B0C10]/30 p-3.5 rounded-xl border border-[#222634] leading-relaxed">
+                          <h4 className="text-[10px] text-[#A29A8B] font-black uppercase tracking-wider">AI Pedagogical Explanation</h4>
+                          <div className="text-xs text-[#ECE6DA] mt-1.5 bg-[#141312]/30 p-3.5 rounded-xl border border-[#34302B] leading-relaxed">
                             {renderFormattedMessage(selectedEdge.description || "The conceptual progression relates the foundational details of the first slides directly to subsequent lectures.")}
                           </div>
                         </div>
@@ -2056,17 +2312,16 @@ export default function SubjectPortal() {
                     </div>
                   ) : (
                     <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
-                      <Brain className="w-8 h-8 text-[#8E9BAE]/60 mb-2.5" />
+                      <Brain className="w-8 h-8 text-[#A29A8B]/60 mb-2.5" />
                       <h3 className="text-xs font-black text-white uppercase tracking-wider">No Selection</h3>
-                      <p className="text-[10px] text-[#8E9BAE] mt-1 max-w-[200px] leading-normal">
+                      <p className="text-[10px] text-[#A29A8B] mt-1 max-w-[200px] leading-normal">
                         Click on any slide circle node or logical line link to pull up detailed lectures supplemental notes!
                       </p>
                     </div>
                   )}
 
                   {/* Active coaching tip */}
-                  <div className="bg-[#66FCF1]/5 border border-[#66FCF1]/10 rounded-2xl p-4.5 text-[10px] text-[#8E9BAE] leading-normal flex items-start gap-2.5">
-                    <Sparkles className="w-4 h-4 text-[#66FCF1] shrink-0 mt-0.5" />
+                  <div className="bg-[#A7C4A0]/5 border border-[#A7C4A0]/10 rounded-2xl p-4.5 text-[10px] text-[#A29A8B] leading-normal flex items-start gap-2.5">
                     <div>
                       <strong className="text-white font-extrabold">Active Recall Tip:</strong> Always study prerequisite nodes first before tackling highly complex trap-dense orange lectures to retain formulas effectively!
                     </div>
@@ -2081,56 +2336,139 @@ export default function SubjectPortal() {
               <div className="lg:col-span-2 flex flex-col gap-6">
                 <div className="flex justify-between items-center">
                   <div>
-                    <h2 className="text-base font-extrabold text-white">Daily Study Queue</h2>
-                    <p className="text-xs text-[#8E9BAE]">AI continuously prioritizes tasks as your exam approaches.</p>
+                    <h2 className="font-display text-base font-semibold text-[#ECE6DA]">Daily study queue</h2>
+                    <p className="text-xs text-[#A29A8B]">AI continuously prioritizes tasks as your exam approaches.</p>
                   </div>
                   
-                  <button
-                    onClick={handleGeneratePlan}
-                    className="flex items-center gap-1.5 bg-[#66FCF1] text-[#0B0C10] hover:bg-[#45E3D8] transition-all text-xs font-extrabold px-4 py-2 rounded-lg cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" /> Proactively Plan Tasks
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowAddTask(v => !v)}
+                      className="flex items-center gap-1.5 bg-[#34302B] text-[#A7C4A0] hover:bg-[#34302B] transition-all text-xs font-extrabold px-4 py-2 rounded-lg cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Task
+                    </button>
+                    <button
+                      onClick={handleGeneratePlan}
+                      className="flex items-center gap-1.5 bg-[#A7C4A0] text-[#141312] hover:bg-[#90AE88] transition-all text-xs font-extrabold px-4 py-2 rounded-lg cursor-pointer"
+                    >
+                      Plan my week
+                    </button>
+                  </div>
                 </div>
+
+                {showAddTask && (
+                  <form onSubmit={handleCreateManualTask} className="glass rounded-xl p-4.5 border border-[#A7C4A0]/30 flex flex-col gap-3">
+                    <input
+                      value={newTaskTitle}
+                      onChange={(e) => setNewTaskTitle(e.target.value)}
+                      placeholder="Task title"
+                      required
+                      className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                    />
+                    <textarea
+                      value={newTaskDesc}
+                      onChange={(e) => setNewTaskDesc(e.target.value)}
+                      placeholder="Description (optional)"
+                      rows={2}
+                      className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                    />
+                    <div className="flex items-center gap-3">
+                      <label className="text-[10px] font-bold text-[#A29A8B] uppercase">Minutes</label>
+                      <input
+                        type="number"
+                        min={5}
+                        value={newTaskDuration}
+                        onChange={(e) => setNewTaskDuration(Number(e.target.value))}
+                        className="w-24 bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                      />
+                      <div className="flex-1" />
+                      <button type="button" onClick={() => setShowAddTask(false)} className="text-xs text-[#A29A8B] hover:text-white px-3 py-2 cursor-pointer">Cancel</button>
+                      <button type="submit" className="bg-[#A7C4A0] text-[#141312] text-xs font-extrabold px-4 py-2 rounded-lg hover:bg-[#90AE88] cursor-pointer">Save Task</button>
+                    </div>
+                  </form>
+                )}
 
                 <div className="flex flex-col gap-3">
                   {tasks.map((task) => (
-                    <div 
+                    <div
                       key={task.id}
-                      className={`glass rounded-xl p-4.5 border transition-all flex items-start justify-between gap-4 ${
-                        task.status === 'completed' ? 'border-emerald-500/20 bg-emerald-500/[0.02] opacity-75' : 'border-[#222634] hover:border-[#66FCF1]/20'
+                      className={`glass rounded-lg p-4.5 border transition-colors flex items-start justify-between gap-4 ${
+                        task.status === 'completed' ? 'border-[#34302B] opacity-60' : 'border-[#34302B] hover:border-[#A7C4A0]/20'
                       }`}
                     >
+                      {editingTaskId === task.id ? (
+                        <form onSubmit={handleSaveTaskEdit} className="flex-1 flex flex-col gap-2.5">
+                          <input
+                            value={editTaskTitle}
+                            onChange={(e) => setEditTaskTitle(e.target.value)}
+                            required
+                            className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                          />
+                          <textarea
+                            value={editTaskDesc}
+                            onChange={(e) => setEditTaskDesc(e.target.value)}
+                            rows={2}
+                            className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                          />
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="number"
+                              min={5}
+                              value={editTaskDuration}
+                              onChange={(e) => setEditTaskDuration(Number(e.target.value))}
+                              className="w-24 bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                            />
+                            <span className="text-[10px] text-[#A29A8B] uppercase font-bold">mins</span>
+                            <div className="flex-1" />
+                            <button type="button" onClick={() => setEditingTaskId(null)} className="text-xs text-[#A29A8B] hover:text-white px-3 py-1.5 cursor-pointer">Cancel</button>
+                            <button type="submit" className="bg-[#A7C4A0] text-[#141312] text-xs font-extrabold px-4 py-1.5 rounded-lg hover:bg-[#90AE88] cursor-pointer">Save</button>
+                          </div>
+                        </form>
+                      ) : (
+                      <>
                       <div className="flex items-start gap-3.5">
                         <button
                           onClick={() => handleToggleTask(task.id, task.status)}
                           className="mt-1 flex items-center justify-center shrink-0 cursor-pointer"
                         >
                           <CheckCircle2 className={`w-5 h-5 transition-all ${
-                            task.status === 'completed' ? 'text-emerald-400 fill-emerald-400/20' : 'text-[#8E9BAE] hover:text-[#66FCF1]'
+                            task.status === 'completed' ? 'text-emerald-400 fill-emerald-400/20' : 'text-[#A29A8B] hover:text-[#A7C4A0]'
                           }`} />
                         </button>
-                        
+
                         <div>
-                          <h3 className={`text-sm font-extrabold text-white ${task.status === 'completed' ? 'line-through text-[#8E9BAE]' : ''}`}>
+                          <h3 className={`text-sm font-semibold ${task.status === 'completed' ? 'line-through text-[#A29A8B]' : 'text-[#ECE6DA]'}`}>
                             {task.title}
                           </h3>
-                          <p className="text-xs text-[#8E9BAE] mt-1 leading-relaxed">{task.description}</p>
-                          <div className="flex gap-2 text-[9px] text-[#8E9BAE] mt-2.5">
-                            <span className="flex items-center gap-0.5"><Clock className="w-3 h-3" /> {task.duration_minutes} mins</span>
-                            {task.urgency_score > 0 && (
-                              <span className="bg-[#66FCF1]/10 text-[#66FCF1] px-1.5 py-0.5 rounded font-black">
-                                Urgency: {task.urgency_score}/10
-                              </span>
-                            )}
+                          <p className="text-xs text-[#A29A8B] mt-1 leading-relaxed">{task.description}</p>
+                          <div className="flex gap-2 text-[9px] text-[#A29A8B] mt-2.5">
+                            <span className="flex items-center gap-0.5 tnum"><Clock className="w-3 h-3" /> {task.duration_minutes} min</span>
                           </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => startEditTask(task)}
+                          className="p-1.5 rounded-md text-[#A29A8B] hover:text-[#A7C4A0] hover:bg-[#34302B] transition-colors cursor-pointer"
+                          title="Edit task"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTask(task.id)}
+                          className="p-1.5 rounded-md text-[#A29A8B] hover:text-red-400 hover:bg-[#34302B] transition-colors cursor-pointer"
+                          title="Delete task"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      </>
+                      )}
                     </div>
                   ))}
                   {tasks.length === 0 && (
-                    <div className="text-center py-12 text-xs text-[#8E9BAE]">
-                      No planner tasks scheduled yet. Click "Proactively Plan Tasks" to generate!
+                    <div className="text-center py-12 text-xs text-[#A29A8B]">
+                      No planner tasks scheduled yet. Click "Plan my week" to generate!
                     </div>
                   )}
                 </div>
@@ -2138,33 +2476,33 @@ export default function SubjectPortal() {
 
               {/* Study Sessions Tracker */}
               <div className="lg:col-span-1 flex flex-col gap-6">
-                <div className="glass rounded-2xl p-6 border border-[#222634]">
-                  <h2 className="text-base font-extrabold mb-4 text-white">Log Study Session</h2>
+                <div className="glass rounded-2xl p-6 border border-[#34302B]">
+                  <h2 className="font-display text-base font-semibold mb-4 text-[#ECE6DA]">Log a study session</h2>
                   <form onSubmit={handleLogSession} className="flex flex-col gap-4">
                     <div>
-                      <label className="block text-[10px] font-bold text-[#8E9BAE] uppercase mb-1">Session Title</label>
+                      <label className="block text-[10px] font-bold text-[#A29A8B] uppercase mb-1">Session Title</label>
                       <input 
                         type="text" 
                         required
                         value={sessionTitle}
                         onChange={(e) => setSessionTitle(e.target.value)}
-                        className="w-full bg-[#0B0C10] border border-[#222634] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#66FCF1]"
+                        className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-[#8E9BAE] uppercase mb-1">Time Studied (Minutes)</label>
+                      <label className="block text-[10px] font-bold text-[#A29A8B] uppercase mb-1">Time Studied (Minutes)</label>
                       <input 
                         type="number" 
                         required
                         value={sessionMinutes}
                         onChange={(e) => setSessionMinutes(Number(e.target.value))}
-                        className="w-full bg-[#0B0C10] border border-[#222634] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#66FCF1]"
+                        className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-[#8E9BAE] uppercase mb-1">Focus Score (1-5)</label>
+                      <label className="block text-[10px] font-bold text-[#A29A8B] uppercase mb-1">Focus Score (1-5)</label>
                       <div className="flex justify-between items-center gap-1">
                         {[1, 2, 3, 4, 5].map((val) => (
                           <button
@@ -2173,8 +2511,8 @@ export default function SubjectPortal() {
                             onClick={() => setSessionFocus(val)}
                             className={`flex-1 py-1.5 rounded-md text-xs font-extrabold border transition-all cursor-pointer ${
                               sessionFocus === val 
-                                ? 'bg-[#66FCF1] border-[#66FCF1] text-[#0B0C10]' 
-                                : 'bg-[#0B0C10] border-[#222634] text-[#8E9BAE] hover:text-white'
+                                ? 'bg-[#A7C4A0] border-[#A7C4A0] text-[#141312]' 
+                                : 'bg-[#141312] border-[#34302B] text-[#A29A8B] hover:text-white'
                             }`}
                           >
                             {val}
@@ -2184,22 +2522,22 @@ export default function SubjectPortal() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-[#8E9BAE] uppercase mb-1">Topic Notes</label>
+                      <label className="block text-[10px] font-bold text-[#A29A8B] uppercase mb-1">Topic Notes</label>
                       <textarea 
                         rows={3}
                         placeholder="e.g. Worked through page replacement exercise..."
                         value={sessionNotes}
                         onChange={(e) => setSessionNotes(e.target.value)}
-                        className="w-full bg-[#0B0C10] border border-[#222634] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#66FCF1]"
+                        className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
                       />
                     </div>
 
                     <button
                       type="submit"
                       disabled={loggingSession}
-                      className="w-full bg-[#222634] hover:bg-[#66FCF1] hover:text-[#0B0C10] text-[#66FCF1] transition-all text-xs font-extrabold py-2.5 rounded-lg disabled:opacity-50 cursor-pointer"
+                      className="w-full bg-[#34302B] hover:bg-[#A7C4A0] hover:text-[#141312] text-[#A7C4A0] transition-all text-xs font-extrabold py-2.5 rounded-lg disabled:opacity-50 cursor-pointer"
                     >
-                      {loggingSession ? "Saving Session..." : "Log Session Hours"}
+                      {loggingSession ? "Saving Session..." : "Log this session"}
                     </button>
                   </form>
                 </div>
@@ -2209,18 +2547,18 @@ export default function SubjectPortal() {
 
           {/* TAB 3: AI TUTOR (RAG CHAT) */}
           {activeTab === 'tutor' && (
-            <div className="glass rounded-3xl border border-[#222634] overflow-hidden flex flex-col h-[550px] relative">
+            <div className="glass rounded-3xl border border-[#34302B] overflow-hidden flex flex-col h-[550px] relative">
               {/* Tutor Header Controls */}
-              <div className="bg-[#151821] border-b border-[#222634] px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div className="bg-[#1D1B19] border-b border-[#34302B] px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
                   <h2 className="text-sm font-extrabold text-white flex items-center gap-1.5">
-                    <Brain className="w-4 h-4 text-[#66FCF1]" /> Finals Buddy RAG Tutor
+                    <Brain className="w-4 h-4 text-[#A7C4A0]" /> Finals Buddy RAG Tutor
                   </h2>
-                  <p className="text-[10px] text-[#8E9BAE] mt-0.5">Answers derived strictly from uploaded course documents.</p>
+                  <p className="text-[10px] text-[#A29A8B] mt-0.5">Answers derived strictly from uploaded course documents.</p>
                 </div>
 
                 <div className="flex gap-2 items-center flex-wrap">
-                  <div className="flex gap-1 bg-[#0B0C10] p-1 rounded-lg border border-[#222634]">
+                  <div className="flex gap-1 bg-[#141312] p-1 rounded-lg border border-[#34302B]">
                     {([
                       { key: 'standard', label: 'Standard' },
                       { key: 'simplified', label: 'Explain like I\'m 5' },
@@ -2231,8 +2569,8 @@ export default function SubjectPortal() {
                         onClick={() => setTutorMode(opt.key)}
                         className={`px-3 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
                           tutorMode === opt.key 
-                            ? 'bg-[#66FCF1] text-[#0B0C10]' 
-                            : 'text-[#8E9BAE] hover:text-white'
+                            ? 'bg-[#A7C4A0] text-[#141312]' 
+                            : 'text-[#A29A8B] hover:text-white'
                         }`}
                       >
                         {opt.label}
@@ -2252,12 +2590,11 @@ export default function SubjectPortal() {
               </div>
 
               {/* Chat Feed */}
-              <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4 bg-[#0B0C10]/20">
+              <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4 bg-[#141312]/20">
                 {tutorMessages.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-full text-center p-6">
-                    <Sparkles className="w-8 h-8 text-[#66FCF1] mb-2.5 animate-pulse" />
                     <h3 className="text-xs font-black text-white">Ask Finals Buddy Anything</h3>
-                    <p className="text-[10px] text-[#8E9BAE] max-w-[280px] leading-relaxed mt-1">
+                    <p className="text-[10px] text-[#A29A8B] max-w-[280px] leading-relaxed mt-1">
                       Query concepts inside your ingested slides. Try selecting "Explain like I'm 5" to simplify complex algorithms!
                     </p>
                   </div>
@@ -2274,21 +2611,21 @@ export default function SubjectPortal() {
                     >
                       <div className={`max-w-[80%] rounded-2xl p-4.5 text-xs leading-relaxed group relative ${
                         msg.sender === 'student' 
-                          ? 'bg-[#66FCF1]/10 border border-[#66FCF1]/30 text-white rounded-br-none' 
-                          : 'bg-[#1C1F2E] border border-[#2B3045] text-[#E2E8F0] rounded-bl-none'
+                          ? 'bg-[#A7C4A0]/10 border border-[#A7C4A0]/30 text-white rounded-br-none' 
+                          : 'bg-[#262320] border border-[#34302B] text-[#ECE6DA] rounded-bl-none'
                       }`}>
                         {editingMessageId === msg.id ? (
                           <div className="flex flex-col gap-2 min-w-[200px]">
                             <textarea
                               value={editingMessageText}
                               onChange={(e) => setEditingMessageText(e.target.value)}
-                              className="bg-[#0B0C10] border border-[#222634] text-white rounded-lg p-2 text-xs focus:outline-none focus:border-[#66FCF1] w-full"
+                              className="bg-[#141312] border border-[#34302B] text-white rounded-lg p-2 text-xs focus:outline-none focus:border-[#A7C4A0] w-full"
                               rows={3}
                             />
                             <div className="flex gap-2 justify-end">
                               <button
                                 onClick={() => setEditingMessageId(null)}
-                                className="text-xs text-[#8E9BAE] hover:text-white px-2 py-1 cursor-pointer"
+                                className="text-xs text-[#A29A8B] hover:text-white px-2 py-1 cursor-pointer"
                               >
                                 Cancel
                               </button>
@@ -2296,7 +2633,7 @@ export default function SubjectPortal() {
                                 onClick={() => {
                                   if (msg.id) handleEditChatMessage(msg.id, editingMessageText);
                                 }}
-                                className="text-xs bg-[#66FCF1] text-[#0B0C10] px-2 py-1 rounded font-bold cursor-pointer"
+                                className="text-xs bg-[#A7C4A0] text-[#141312] px-2 py-1 rounded font-bold cursor-pointer"
                               >
                                 Save
                               </button>
@@ -2314,7 +2651,7 @@ export default function SubjectPortal() {
                                   setEditingMessageText(parsedText);
                                 }}
                                 title="Edit message"
-                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-[#8E9BAE] hover:text-[#66FCF1] transition-opacity cursor-pointer p-0.5"
+                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-[#A29A8B] hover:text-[#A7C4A0] transition-opacity cursor-pointer p-0.5"
                               >
                                 <Edit className="w-3.5 h-3.5" />
                               </button>
@@ -2323,10 +2660,10 @@ export default function SubjectPortal() {
                         )}
                         
                         {allSources.length > 0 && (
-                          <div className="mt-3.5 border-t border-[#2B3045]/60 pt-2 flex flex-wrap gap-1.5 items-center">
-                            <span className="text-[9px] uppercase font-bold text-[#8E9BAE] mr-1 block">Context derived from:</span>
+                          <div className="mt-3.5 border-t border-[#34302B]/60 pt-2 flex flex-wrap gap-1.5 items-center">
+                            <span className="text-[9px] uppercase font-bold text-[#A29A8B] mr-1 block">Context derived from:</span>
                             {allSources.map((s, sIdx) => (
-                              <span key={sIdx} className="bg-[#0B0C10] border border-[#222634] text-[9px] text-[#66FCF1] px-1.5 py-0.5 rounded flex items-center gap-1 font-bold">
+                              <span key={sIdx} className="bg-[#141312] border border-[#34302B] text-[9px] text-[#A7C4A0] px-1.5 py-0.5 rounded flex items-center gap-1 font-bold">
                                 <Bookmark className="w-2.5 h-2.5" /> {s}
                               </span>
                             ))}
@@ -2336,11 +2673,11 @@ export default function SubjectPortal() {
 
                       {/* Display sources NEXT to the message block in a vertical column! */}
                       {msg.sender === 'tutor' && allSources.length > 0 && (
-                        <div className="hidden md:flex flex-col gap-1 max-w-[140px] shrink-0 self-center border-l border-[#2B3045] pl-3 py-1">
-                          <span className="text-[8px] uppercase tracking-wider font-extrabold text-[#8E9BAE] mb-0.5">Sources</span>
+                        <div className="hidden md:flex flex-col gap-1 max-w-[140px] shrink-0 self-center border-l border-[#34302B] pl-3 py-1">
+                          <span className="text-[8px] uppercase tracking-wider font-extrabold text-[#A29A8B] mb-0.5">Sources</span>
                           {allSources.map((s, sIdx) => (
-                            <div key={sIdx} title={s} className="bg-[#0B0C10]/40 border border-[#222634]/60 text-[8px] text-[#66FCF1] px-2 py-0.5 rounded flex items-center gap-1 font-mono font-bold truncate max-w-[120px]">
-                              <Bookmark className="w-2 h-2 shrink-0 text-[#66FCF1]/60" /> {s}
+                            <div key={sIdx} title={s} className="bg-[#141312]/40 border border-[#34302B]/60 text-[8px] text-[#A7C4A0] px-2 py-0.5 rounded flex items-center gap-1 font-mono font-bold truncate max-w-[120px]">
+                              <Bookmark className="w-2 h-2 shrink-0 text-[#A7C4A0]/60" /> {s}
                             </div>
                           ))}
                         </div>
@@ -2351,7 +2688,7 @@ export default function SubjectPortal() {
 
                 {tutorLoading && (
                   <div className="flex justify-start">
-                    <div className="bg-[#1C1F2E] border border-[#2B3045] rounded-2xl rounded-bl-none p-4 text-xs text-[#8E9BAE]">
+                    <div className="bg-[#262320] border border-[#34302B] rounded-2xl rounded-bl-none p-4 text-xs text-[#A29A8B]">
                       Thinking step-by-step using ingested notes...
                     </div>
                   </div>
@@ -2360,17 +2697,17 @@ export default function SubjectPortal() {
               </div>
 
               {/* Chat Input */}
-              <form onSubmit={handleSendTutorQuery} className="bg-[#151821] border-t border-[#222634] p-4 flex gap-2">
+              <form onSubmit={handleSendTutorQuery} className="bg-[#1D1B19] border-t border-[#34302B] p-4 flex gap-2">
                 <input 
                   type="text"
                   placeholder="Ask a question about page table size, pipeline stalls..."
                   value={tutorQuery}
                   onChange={(e) => setTutorQuery(e.target.value)}
-                  className="flex-1 bg-[#0B0C10] border border-[#222634] text-white rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-[#66FCF1]"
+                  className="flex-1 bg-[#141312] border border-[#34302B] text-white rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-[#A7C4A0]"
                 />
                 <button
                   type="submit"
-                  className="bg-[#66FCF1] text-[#0B0C10] hover:bg-[#45E3D8] transition-all p-3 rounded-xl cursor-pointer"
+                  className="bg-[#A7C4A0] text-[#141312] hover:bg-[#90AE88] transition-all p-3 rounded-xl cursor-pointer"
                 >
                   <Send className="w-4 h-4" />
                 </button>
@@ -2386,28 +2723,28 @@ export default function SubjectPortal() {
             return (
               <div className="flex flex-col gap-8">
                 {/* Controls Bar */}
-                <div className="bg-[#151821] border border-[#222634] rounded-2xl p-5 flex flex-col md:flex-row justify-between items-center gap-4">
-                  <div className="flex bg-[#0B0C10] p-1 rounded-xl border border-[#222634]">
+                <div className="bg-[#1D1B19] border border-[#34302B] rounded-2xl p-5 flex flex-col md:flex-row justify-between items-center gap-4">
+                  <div className="flex bg-[#141312] p-1 rounded-xl border border-[#34302B]">
                     <button
                       onClick={() => setActiveRecallMode('study')}
-                      className={`px-6 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeRecallMode === 'study' ? 'bg-[#66FCF1] text-[#0B0C10]' : 'text-[#8E9BAE] hover:text-white'}`}
+                      className={`px-6 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeRecallMode === 'study' ? 'bg-[#A7C4A0] text-[#141312]' : 'text-[#A29A8B] hover:text-white'}`}
                     >
                       Study Mode
                     </button>
                     <button
                       onClick={() => setActiveRecallMode('manage')}
-                      className={`px-6 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeRecallMode === 'manage' ? 'bg-[#66FCF1] text-[#0B0C10]' : 'text-[#8E9BAE] hover:text-white'}`}
+                      className={`px-6 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeRecallMode === 'manage' ? 'bg-[#A7C4A0] text-[#141312]' : 'text-[#A29A8B] hover:text-white'}`}
                     >
                       Manage Deck
                     </button>
                   </div>
                   
                   <div className="flex items-center gap-3 w-full md:w-auto">
-                    <span className="text-xs font-bold text-[#8E9BAE]">Source Filter:</span>
+                    <span className="text-xs font-bold text-[#A29A8B]">Source Filter:</span>
                     <select
                       value={flashcardFilterMaterial}
                       onChange={(e) => setFlashcardFilterMaterial(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                      className="bg-[#0B0C10] border border-[#222634] text-white rounded-lg p-2.5 text-xs focus:outline-none focus:border-[#66FCF1] flex-1 md:w-64"
+                      className="bg-[#141312] border border-[#34302B] text-white rounded-lg p-2.5 text-xs focus:outline-none focus:border-[#A7C4A0] flex-1 md:w-64"
                     >
                       <option value="all">All Sources</option>
                       {materials.map(m => (
@@ -2422,8 +2759,8 @@ export default function SubjectPortal() {
                   <div className="flex flex-col gap-5">
                     <div className="flex justify-between items-center">
                       <div>
-                        <h2 className="text-base font-extrabold text-white">Deck Manager</h2>
-                        <p className="text-xs text-[#8E9BAE]">View, edit, reclassify, or delete your flashcards. Total: {filteredFlashcards.length}</p>
+                        <h2 className="font-display text-base font-semibold text-[#ECE6DA]">Manage your deck</h2>
+                        <p className="text-xs text-[#A29A8B]">View, edit, reclassify, or delete your flashcards. Total: {filteredFlashcards.length}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <button
@@ -2431,12 +2768,11 @@ export default function SubjectPortal() {
                           disabled={isGeneratingMoreFlashcards}
                           className="bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 transition-all text-purple-400 text-xs font-bold px-4 py-2 rounded-xl cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                         >
-                          <Sparkles className="w-3.5 h-3.5" />
                           {isGeneratingMoreFlashcards ? "Generating..." : "Generate More Cards"}
                         </button>
                         <button
                           onClick={() => setShowAddFlashcard(!showAddFlashcard)}
-                          className="bg-[#66FCF1]/10 border border-[#66FCF1]/30 hover:bg-[#66FCF1]/20 transition-all text-[#66FCF1] text-xs font-bold px-4 py-2 rounded-xl cursor-pointer flex items-center gap-1.5"
+                          className="bg-[#A7C4A0]/10 border border-[#A7C4A0]/30 hover:bg-[#A7C4A0]/20 transition-all text-[#A7C4A0] text-xs font-bold px-4 py-2 rounded-xl cursor-pointer flex items-center gap-1.5"
                         >
                           {showAddFlashcard ? <X className="w-3.5 h-3.5" /> : <Edit className="w-3.5 h-3.5" />}
                           {showAddFlashcard ? "Cancel Custom Card" : "+ Custom Card"}
@@ -2445,31 +2781,31 @@ export default function SubjectPortal() {
                     </div>
 
                     {showAddFlashcard && (
-                      <form onSubmit={handleCreateManualFlashcard} className="bg-[#151821] border border-[#66FCF1]/30 rounded-2xl p-5 flex flex-col gap-3.5 max-w-2xl">
+                      <form onSubmit={handleCreateManualFlashcard} className="bg-[#1D1B19] border border-[#A7C4A0]/30 rounded-2xl p-5 flex flex-col gap-3.5 max-w-2xl">
                         <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1">
-                          <Sparkles className="w-3.5 h-3.5 text-[#66FCF1]" /> Add Custom Study Note Card
+                          Add your own card
                         </h3>
                         <div className="flex flex-col gap-1.5">
-                          <label className="text-[10px] uppercase font-bold text-[#8E9BAE]">Front (Concept / Question)</label>
+                          <label className="text-[10px] uppercase font-bold text-[#A29A8B]">Front (Concept / Question)</label>
                           <input 
                             type="text"
                             value={flashcardFront}
                             onChange={(e) => setFlashcardFront(e.target.value)}
-                            className="bg-[#0B0C10] border border-[#222634] text-white rounded-lg p-2.5 text-xs focus:outline-none focus:border-[#66FCF1] w-full"
+                            className="bg-[#141312] border border-[#34302B] text-white rounded-lg p-2.5 text-xs focus:outline-none focus:border-[#A7C4A0] w-full"
                             required
                           />
                         </div>
                         <div className="flex flex-col gap-1.5">
-                          <label className="text-[10px] uppercase font-bold text-[#8E9BAE]">Back (Explanation / Definition)</label>
+                          <label className="text-[10px] uppercase font-bold text-[#A29A8B]">Back (Explanation / Definition)</label>
                           <textarea
                             value={flashcardBack}
                             onChange={(e) => setFlashcardBack(e.target.value)}
-                            className="bg-[#0B0C10] border border-[#222634] text-white rounded-lg p-2.5 text-xs focus:outline-none focus:border-[#66FCF1] w-full"
+                            className="bg-[#141312] border border-[#34302B] text-white rounded-lg p-2.5 text-xs focus:outline-none focus:border-[#A7C4A0] w-full"
                             rows={3}
                             required
                           />
                         </div>
-                        <button type="submit" className="bg-[#66FCF1] text-[#0B0C10] hover:bg-[#45E3D8] transition-all py-2.5 rounded-xl text-xs font-black cursor-pointer self-start px-6">
+                        <button type="submit" className="bg-[#A7C4A0] text-[#141312] hover:bg-[#90AE88] transition-all py-2.5 rounded-xl text-xs font-black cursor-pointer self-start px-6">
                           Save Custom Flashcard
                         </button>
                       </form>
@@ -2477,17 +2813,17 @@ export default function SubjectPortal() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                       {filteredFlashcards.map(card => (
-                        <div key={card.id} className="glass rounded-xl p-5 border border-[#222634] flex flex-col gap-4 relative group">
+                        <div key={card.id} className="glass rounded-xl p-5 border border-[#34302B] flex flex-col gap-4 relative group">
                           {editingFlashcardId === card.id ? (
                             <form onSubmit={handleUpdateFlashcard} className="flex flex-col gap-3">
                               <input 
-                                className="bg-[#0B0C10] border border-[#222634] text-white rounded-lg p-2 text-xs w-full"
+                                className="bg-[#141312] border border-[#34302B] text-white rounded-lg p-2 text-xs w-full"
                                 value={editFlashcardFront}
                                 onChange={e => setEditFlashcardFront(e.target.value)}
                                 placeholder="Front"
                               />
                               <textarea 
-                                className="bg-[#0B0C10] border border-[#222634] text-white rounded-lg p-2 text-xs w-full"
+                                className="bg-[#141312] border border-[#34302B] text-white rounded-lg p-2 text-xs w-full"
                                 value={editFlashcardBack}
                                 onChange={e => setEditFlashcardBack(e.target.value)}
                                 rows={4}
@@ -2497,14 +2833,14 @@ export default function SubjectPortal() {
                                 <select 
                                   value={editFlashcardBox}
                                   onChange={e => setEditFlashcardBox(Number(e.target.value))}
-                                  className="bg-[#0B0C10] border border-[#222634] text-white rounded-lg p-2 text-xs w-24"
+                                  className="bg-[#141312] border border-[#34302B] text-white rounded-lg p-2 text-xs w-24"
                                 >
                                   {[1,2,3,4,5].map(b => <option key={b} value={b}>Box {b}</option>)}
                                 </select>
                                 <select
                                   value={editFlashcardMaterialId || ''}
                                   onChange={e => setEditFlashcardMaterialId(e.target.value ? Number(e.target.value) : null)}
-                                  className="bg-[#0B0C10] border border-[#222634] text-white rounded-lg p-2 text-xs flex-1"
+                                  className="bg-[#141312] border border-[#34302B] text-white rounded-lg p-2 text-xs flex-1"
                                 >
                                   <option value="">General</option>
                                   {materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -2526,24 +2862,24 @@ export default function SubjectPortal() {
                                     setEditFlashcardBox(card.box);
                                     setEditFlashcardMaterialId(card.material_id || null);
                                   }}
-                                  className="bg-[#1C1F2E] p-1.5 rounded-md text-[#66FCF1] hover:bg-[#66FCF1]/20 transition-colors"
+                                  className="bg-[#262320] p-1.5 rounded-md text-[#A7C4A0] hover:bg-[#A7C4A0]/20 transition-colors"
                                 >
                                   <Edit className="w-3 h-3" />
                                 </button>
                                 <button 
                                   onClick={() => handleDeleteFlashcard(card.id)}
-                                  className="bg-[#1C1F2E] p-1.5 rounded-md text-red-400 hover:bg-red-500/20 transition-colors"
+                                  className="bg-[#262320] p-1.5 rounded-md text-red-400 hover:bg-red-500/20 transition-colors"
                                 >
                                   <Trash2 className="w-3 h-3" />
                                 </button>
                               </div>
                               <div>
-                                <div className="text-[9px] uppercase font-black text-[#8E9BAE] mb-1">Front</div>
+                                <div className="text-[9px] uppercase font-black text-[#A29A8B] mb-1">Front</div>
                                 <div className="text-xs font-bold text-white mb-3 line-clamp-3">{renderFormattedMessage(card.front)}</div>
-                                <div className="text-[9px] uppercase font-black text-[#8E9BAE] mb-1">Back</div>
-                                <div className="text-xs text-[#E2E8F0] line-clamp-4">{renderFormattedMessage(card.back)}</div>
+                                <div className="text-[9px] uppercase font-black text-[#A29A8B] mb-1">Back</div>
+                                <div className="text-xs text-[#ECE6DA] line-clamp-4">{renderFormattedMessage(card.back)}</div>
                               </div>
-                              <div className="mt-auto pt-3 border-t border-[#222634]/60 flex justify-between items-center text-[10px] font-bold">
+                              <div className="mt-auto pt-3 border-t border-[#34302B]/60 flex justify-between items-center text-[10px] font-bold">
                                 <span className={`px-2 py-0.5 rounded border ${
                                   card.box === 5 ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 
                                   card.box >= 3 ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 
@@ -2551,7 +2887,7 @@ export default function SubjectPortal() {
                                 }`}>
                                   Box {card.box}
                                 </span>
-                                <span className="text-[#8E9BAE] bg-[#0B0C10] px-2 py-0.5 rounded border border-[#222634]">
+                                <span className="text-[#A29A8B] bg-[#141312] px-2 py-0.5 rounded border border-[#34302B]">
                                   {materials.find(m => m.id === card.material_id)?.name || "General"}
                                 </span>
                               </div>
@@ -2560,7 +2896,7 @@ export default function SubjectPortal() {
                         </div>
                       ))}
                       {filteredFlashcards.length === 0 && (
-                        <div className="col-span-full py-12 text-center text-xs text-[#8E9BAE] border border-dashed border-[#222634] rounded-xl">
+                        <div className="col-span-full py-12 text-center text-xs text-[#A29A8B] border border-dashed border-[#34302B] rounded-xl">
                           No flashcards found for this filter.
                         </div>
                       )}
@@ -2570,15 +2906,15 @@ export default function SubjectPortal() {
                   /* STUDY MODE */
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     {/* Leitner Box Progress Tracker Capsule */}
-                    <div className="col-span-full bg-[#151821] border border-[#222634] rounded-2xl p-5 flex flex-col gap-3">
+                    <div className="col-span-full bg-[#1D1B19] border border-[#34302B] rounded-2xl p-5 flex flex-col gap-3">
                       <div className="flex justify-between items-center">
                         <div>
                           <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
-                            <Zap className="w-3.5 h-3.5 text-[#66FCF1]" /> Leitner Spaced Revision Box Track
+                            <Zap className="w-3.5 h-3.5 text-[#A7C4A0]" /> Leitner Spaced Revision Box Track
                           </h3>
-                          <p className="text-[10px] text-[#8E9BAE]">Track how concepts progress from short-term memory (Box 1) to long-term memory (Box 5).</p>
+                          <p className="text-[10px] text-[#A29A8B]">Track how concepts progress from short-term memory (Box 1) to long-term memory (Box 5).</p>
                         </div>
-                        <div className="bg-[#66FCF1]/10 border border-[#66FCF1]/30 px-3 py-1 rounded-full text-[10px] text-[#66FCF1] font-bold">
+                        <div className="bg-[#A7C4A0]/10 border border-[#A7C4A0]/30 px-3 py-1 rounded-full text-[10px] text-[#A7C4A0] font-bold">
                           Filtered Cards: {filteredFlashcards.length}
                         </div>
                       </div>
@@ -2589,9 +2925,9 @@ export default function SubjectPortal() {
                           const colors = ["text-red-400", "text-orange-400", "text-yellow-400", "text-blue-400", "text-emerald-400"];
                           const borderGlows = ["border-red-500/20", "border-orange-500/20", "border-yellow-500/20", "border-blue-500/20", "border-emerald-500/20"];
                           return (
-                            <div key={boxNum} className={`bg-[#0B0C10] border ${count > 0 ? borderGlows[boxNum-1] + ' shadow-lg shadow-black' : 'border-[#222634]/60'} rounded-xl p-3.5 text-center transition-all`}>
-                              <div className="text-[9px] uppercase tracking-wider font-extrabold text-[#8E9BAE]">Box {boxNum}</div>
-                              <div className="text-[8px] text-[#8E9BAE] mt-0.5">{intervals[boxNum-1]}</div>
+                            <div key={boxNum} className={`bg-[#141312] border ${count > 0 ? borderGlows[boxNum-1] + ' shadow-lg shadow-black' : 'border-[#34302B]/60'} rounded-xl p-3.5 text-center transition-all`}>
+                              <div className="text-[9px] uppercase tracking-wider font-extrabold text-[#A29A8B]">Box {boxNum}</div>
+                              <div className="text-[8px] text-[#A29A8B] mt-0.5">{intervals[boxNum-1]}</div>
                               <div className={`text-xl font-black mt-1.5 ${colors[boxNum-1]}`}>{count}</div>
                             </div>
                           );
@@ -2603,12 +2939,12 @@ export default function SubjectPortal() {
                     <div className="flex flex-col gap-5">
                       <div className="flex justify-between items-center">
                         <div>
-                          <h2 className="text-base font-extrabold text-white">Active Recall Flashcards</h2>
-                          <p className="text-xs text-[#8E9BAE]">Test recall success. Correct feedback upgrades boxes; forgot resets.</p>
+                          <h2 className="font-display text-base font-semibold text-[#ECE6DA]">Flashcards</h2>
+                          <p className="text-xs text-[#A29A8B]">Test recall success. Correct feedback upgrades boxes; forgot resets.</p>
                         </div>
                         <div className="flex items-center gap-2.5">
                           {filteredFlashcards.length > 0 && filteredFlashcards[currentCardIndex] && (
-                            <span className="text-[10px] text-[#8E9BAE]">Card {currentCardIndex + 1} of {filteredFlashcards.length}</span>
+                            <span className="text-[10px] text-[#A29A8B]">Card {currentCardIndex + 1} of {filteredFlashcards.length}</span>
                           )}
                         </div>
                       </div>
@@ -2620,17 +2956,17 @@ export default function SubjectPortal() {
                             onClick={() => setIsFlipped(!isFlipped)}
                             className={`border rounded-2xl h-60 flex items-center justify-center p-8 cursor-pointer relative transition-all duration-300 select-none ${
                               isFlipped 
-                                ? 'bg-[#0B0C10] border-2 border-dashed border-[#66FCF1]/40 shadow-lg shadow-[#66FCF1]/5' 
-                                : 'bg-[#151821] border border-[#222634] hover:border-[#66FCF1]/30 shadow-md'
+                                ? 'bg-[#141312] border-2 border-dashed border-[#A7C4A0]/40 shadow-lg shadow-[#A7C4A0]/5' 
+                                : 'bg-[#1D1B19] border border-[#34302B] hover:border-[#A7C4A0]/30 shadow-md'
                             }`}
                           >
                             <div className="text-center w-full relative">
-                              <span className="absolute -top-16 -left-4 bg-[#66FCF1]/10 text-[#66FCF1] text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider">
+                              <span className="absolute -top-16 -left-4 bg-[#A7C4A0]/10 text-[#A7C4A0] text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-wider">
                                 Leitner Box {filteredFlashcards[currentCardIndex]?.box}
                               </span>
 
-                              <span className="absolute -top-16 left-24 border border-[#222634]/60 bg-[#0B0C10]/80 text-[#8E9BAE] text-[9px] font-mono px-2 py-0.5 rounded flex items-center gap-1 font-bold">
-                                <FileText className="w-2.5 h-2.5 text-[#66FCF1]" /> Source: {
+                              <span className="absolute -top-16 left-24 border border-[#34302B]/60 bg-[#141312]/80 text-[#A29A8B] text-[9px] font-mono px-2 py-0.5 rounded flex items-center gap-1 font-bold">
+                                <FileText className="w-2.5 h-2.5 text-[#A7C4A0]" /> Source: {
                                   materials.find(m => m.id === filteredFlashcards[currentCardIndex]?.material_id)?.name || "Manual / General"
                                 }
                               </span>
@@ -2641,12 +2977,12 @@ export default function SubjectPortal() {
                                   if (filteredFlashcards[currentCardIndex]?.id) handleDeleteFlashcard(filteredFlashcards[currentCardIndex].id);
                                 }}
                                 title="Delete flashcard"
-                                className="absolute -top-16 -right-4 text-[#8E9BAE] hover:text-red-500 transition-colors p-1 cursor-pointer"
+                                className="absolute -top-16 -right-4 text-[#A29A8B] hover:text-red-500 transition-colors p-1 cursor-pointer"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                               
-                              <span className="absolute -bottom-16 right-4 text-[9px] text-[#8E9BAE] font-bold">
+                              <span className="absolute -bottom-16 right-4 text-[9px] text-[#A29A8B] font-bold">
                                 Click card to flip
                               </span>
                               
@@ -2660,21 +2996,21 @@ export default function SubjectPortal() {
                           <div className="grid grid-cols-2 gap-3.5">
                             <button
                               onClick={() => handleReviewFlashcard(false)}
-                              className="bg-[#1C1F2E] border border-red-500/20 text-red-400 hover:bg-red-500/10 transition-all py-2.5 rounded-xl text-xs font-bold cursor-pointer"
+                              className="bg-[#262320] border border-red-500/20 text-red-400 hover:bg-red-500/10 transition-all py-2.5 rounded-xl text-xs font-bold cursor-pointer"
                             >
                               Forgot Concept (Reset to Box 1)
                             </button>
 
                             <button
                               onClick={() => handleReviewFlashcard(true)}
-                              className="bg-[#66FCF1] text-[#0B0C10] hover:bg-[#45E3D8] transition-all py-2.5 rounded-xl text-xs font-black cursor-pointer"
+                              className="bg-[#A7C4A0] text-[#141312] hover:bg-[#90AE88] transition-all py-2.5 rounded-xl text-xs font-black cursor-pointer"
                             >
                               Correct Recall (Upgrade Box)
                             </button>
                           </div>
                         </div>
                       ) : (
-                        <div className="glass rounded-2xl p-12 border border-[#222634] text-center text-xs text-[#8E9BAE]">
+                        <div className="glass rounded-2xl p-12 border border-[#34302B] text-center text-xs text-[#A29A8B]">
                           No flashcards available for this filter. Switch to Manage Deck to add some!
                         </div>
                       )}
@@ -2684,18 +3020,63 @@ export default function SubjectPortal() {
                     <div className="flex flex-col gap-5">
                       <div className="flex justify-between items-center">
                         <div>
-                          <h2 className="text-base font-extrabold text-white">Active Recall Quizzes</h2>
-                          <p className="text-xs text-[#8E9BAE]">Test conceptual mappings. Correct answers boost course confidence.</p>
+                          <h2 className="font-display text-base font-semibold text-[#ECE6DA]">Practice quizzes</h2>
+                          <p className="text-xs text-[#A29A8B]">Test conceptual mappings. Correct answers boost course confidence.</p>
                         </div>
-                        <button
-                          onClick={handleGenerateMoreQuizzes}
-                          disabled={isGeneratingMoreQuizzes}
-                          className="bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 transition-all text-purple-400 text-xs font-bold px-4 py-2 rounded-xl cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                          {isGeneratingMoreQuizzes ? "Generating..." : "Generate More Quizzes"}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setShowAddQuiz(v => !v)}
+                            className="bg-[#34302B] hover:bg-[#34302B] transition-all text-[#A7C4A0] text-xs font-bold px-4 py-2 rounded-xl cursor-pointer flex items-center gap-1.5"
+                          >
+                            <Plus className="w-3.5 h-3.5" /> Add Question
+                          </button>
+                          <button
+                            onClick={handleGenerateMoreQuizzes}
+                            disabled={isGeneratingMoreQuizzes}
+                            className="border border-[#34302B] hover:border-[#A7C4A0]/40 hover:text-[#A7C4A0] transition-colors text-[#A29A8B] text-xs font-semibold px-4 py-2 rounded-lg cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                          >
+                            {isGeneratingMoreQuizzes ? "Generating..." : "Generate More Quizzes"}
+                          </button>
+                        </div>
                       </div>
+
+                      {showAddQuiz && (
+                        <form onSubmit={handleCreateManualQuiz} className="glass rounded-xl p-5 border border-[#A7C4A0]/30 flex flex-col gap-3">
+                          <textarea
+                            value={newQuizQuestion}
+                            onChange={(e) => setNewQuizQuestion(e.target.value)}
+                            placeholder="Question text"
+                            rows={2}
+                            required
+                            className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                          />
+                          {newQuizOptions.map((opt, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name="newQuizCorrect"
+                                checked={newQuizCorrectIdx === idx}
+                                onChange={() => setNewQuizCorrectIdx(idx)}
+                                title="Mark as correct answer"
+                                className="accent-[#A7C4A0] cursor-pointer"
+                              />
+                              <input
+                                value={opt}
+                                onChange={(e) => setNewQuizOptions(prev => prev.map((o, i) => (i === idx ? e.target.value : o)))}
+                                placeholder={`Option ${idx + 1}${idx < 2 ? " (required)" : " (optional)"}`}
+                                className="flex-1 bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                              />
+                            </div>
+                          ))}
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-[#A29A8B]">Select the radio next to the correct option.</span>
+                            <div className="flex items-center gap-2">
+                              <button type="button" onClick={() => setShowAddQuiz(false)} className="text-xs text-[#A29A8B] hover:text-white px-3 py-2 cursor-pointer">Cancel</button>
+                              <button type="submit" className="bg-[#A7C4A0] text-[#141312] text-xs font-extrabold px-4 py-2 rounded-lg hover:bg-[#90AE88] cursor-pointer">Save Question</button>
+                            </div>
+                          </div>
+                        </form>
+                      )}
 
                       <div className="flex flex-col gap-6">
                         {filteredQuizzes.map((quiz) => {
@@ -2703,17 +3084,71 @@ export default function SubjectPortal() {
                           const answerState = quizAnswers[quiz.id];
                           const quizMat = materials.find(m => m.id === quiz.material_id);
                           const quizSource = quizMat ? quizMat.name : "General Prep";
+                          if (editingQuizId === quiz.id) {
+                            return (
+                              <form key={quiz.id} onSubmit={handleSaveQuizEdit} className="glass rounded-xl p-5 border border-[#A7C4A0]/30 flex flex-col gap-3">
+                                <textarea
+                                  value={editQuizQuestion}
+                                  onChange={(e) => setEditQuizQuestion(e.target.value)}
+                                  rows={2}
+                                  required
+                                  className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                                />
+                                {editQuizOptions.map((opt, idx) => (
+                                  <div key={idx} className="flex items-center gap-2">
+                                    <input
+                                      type="radio"
+                                      name={`editQuizCorrect-${quiz.id}`}
+                                      checked={editQuizAnswer === opt && opt !== ""}
+                                      onChange={() => setEditQuizAnswer(opt)}
+                                      title="Mark as correct answer"
+                                      className="accent-[#A7C4A0] cursor-pointer"
+                                    />
+                                    <input
+                                      value={opt}
+                                      onChange={(e) => {
+                                        const newVal = e.target.value;
+                                        setEditQuizOptions(prev => prev.map((o, i) => (i === idx ? newVal : o)));
+                                        if (editQuizAnswer === opt) setEditQuizAnswer(newVal);
+                                      }}
+                                      className="flex-1 bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                                    />
+                                  </div>
+                                ))}
+                                <div className="flex items-center justify-end gap-2">
+                                  <button type="button" onClick={() => setEditingQuizId(null)} className="text-xs text-[#A29A8B] hover:text-white px-3 py-2 cursor-pointer">Cancel</button>
+                                  <button type="submit" className="bg-[#A7C4A0] text-[#141312] text-xs font-extrabold px-4 py-2 rounded-lg hover:bg-[#90AE88] cursor-pointer">Save Changes</button>
+                                </div>
+                              </form>
+                            );
+                          }
                           return (
-                            <div key={quiz.id} className="glass rounded-xl p-5 border border-[#222634] flex flex-col gap-3">
-                              <div className="flex justify-between items-center border-b border-[#222634]/40 pb-2 mb-1">
-                                <span className="bg-[#66FCF1]/10 text-[#66FCF1] border border-[#66FCF1]/20 text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-wider">
+                            <div key={quiz.id} className="glass rounded-xl p-5 border border-[#34302B] flex flex-col gap-3">
+                              <div className="flex justify-between items-center border-b border-[#34302B]/40 pb-2 mb-1">
+                                <span className="bg-[#A7C4A0]/10 text-[#A7C4A0] border border-[#A7C4A0]/20 text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-wider">
                                   Quiz MCQ
                                 </span>
-                                <span className="text-[#8E9BAE] text-[9px] font-mono flex items-center gap-1">
-                                  <FileText className="w-2.5 h-2.5 text-[#66FCF1]/80" /> Source: {quizSource}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[#A29A8B] text-[9px] font-mono flex items-center gap-1">
+                                    <FileText className="w-2.5 h-2.5 text-[#A7C4A0]/80" /> Source: {quizSource}
+                                  </span>
+                                  <button
+                                    onClick={() => startEditQuiz(quiz)}
+                                    className="p-1 rounded text-[#A29A8B] hover:text-[#A7C4A0] hover:bg-[#34302B] transition-colors cursor-pointer"
+                                    title="Edit question"
+                                  >
+                                    <Edit className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteQuiz(quiz.id)}
+                                    className="p-1 rounded text-[#A29A8B] hover:text-red-400 hover:bg-[#34302B] transition-colors cursor-pointer"
+                                    title="Delete question"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
                               </div>
-                              
+
                               <h3 className="font-extrabold text-xs text-white leading-relaxed mb-2">{quiz.question}</h3>
                               
                               <div className="flex flex-col gap-2">
@@ -2731,8 +3166,8 @@ export default function SubjectPortal() {
                                             ? 'bg-emerald-500/20 border-emerald-500 text-white font-bold'
                                             : isSelected
                                               ? 'bg-red-500/20 border-red-500 text-white font-bold'
-                                              : 'bg-[#0B0C10] border-[#222634] text-[#8E9BAE] opacity-50'
-                                          : 'bg-[#0B0C10] border-[#222634] text-white hover:border-[#66FCF1]/30 hover:bg-[#1C1F2E]'
+                                              : 'bg-[#141312] border-[#34302B] text-[#A29A8B] opacity-50'
+                                          : 'bg-[#141312] border-[#34302B] text-white hover:border-[#A7C4A0]/30 hover:bg-[#262320]'
                                       }`}
                                     >
                                       {opt}
@@ -2754,7 +3189,7 @@ export default function SubjectPortal() {
                           );
                         })}
                         {filteredQuizzes.length === 0 && (
-                          <div className="glass rounded-2xl p-12 border border-[#222634] text-center text-xs text-[#8E9BAE]">
+                          <div className="glass rounded-2xl p-12 border border-[#34302B] text-center text-xs text-[#A29A8B]">
                             No quizzes found for this filter.
                           </div>
                         )}
@@ -2772,23 +3207,23 @@ export default function SubjectPortal() {
               {!activeExam ? (
                 // Exams History List and Start Button
                 <div className="flex flex-col gap-6">
-                  <div className="glass rounded-2xl p-6 border border-[#222634] flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                  <div className="glass rounded-2xl p-6 border border-[#34302B] flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                     <div>
-                      <h2 className="text-base font-extrabold text-white flex items-center gap-2">
-                        <Award className="w-5 h-5 text-[#66FCF1]" /> Timed Mock Exam Canvas
+                      <h2 className="font-display text-base font-semibold text-[#ECE6DA] flex items-center gap-2">
+                        <Award className="w-5 h-5 text-[#A7C4A0]" /> Timed Mock Exam Canvas
                       </h2>
-                      <p className="text-xs text-[#8E9BAE] mt-1">
+                      <p className="text-xs text-[#A29A8B] mt-1">
                         AI Coach generates custom conceptual short essay questions based on your ingested textbooks and slides.
                       </p>
                     </div>
                     <button
                       onClick={handleStartExam}
                       disabled={generatingExam}
-                      className="bg-[#66FCF1] hover:bg-[#45E3D8] text-[#0B0C10] px-5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shrink-0"
+                      className="bg-[#A7C4A0] hover:bg-[#90AE88] text-[#141312] px-5 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shrink-0"
                     >
                       {generatingExam ? (
                         <>
-                          <div className="w-3.5 h-3.5 border-t-2 border-[#0B0C10] border-solid rounded-full animate-spin"></div>
+                          <div className="w-3.5 h-3.5 border-t-2 border-[#141312] border-solid rounded-full animate-spin"></div>
                           Synthesizing Questions...
                         </>
                       ) : (
@@ -2797,17 +3232,17 @@ export default function SubjectPortal() {
                     </button>
                   </div>
 
-                  <div className="glass rounded-2xl p-6 border border-[#222634]">
+                  <div className="glass rounded-2xl p-6 border border-[#34302B]">
                     <h3 className="text-sm font-extrabold text-white mb-4">Past Mock Exam Sessions</h3>
                     {mockExams.length === 0 ? (
-                      <div className="text-center text-xs text-[#8E9BAE] py-8">
+                      <div className="text-center text-xs text-[#A29A8B] py-8">
                         No mock exams taken yet. Click the button above to begin your timed prep simulator.
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs text-[#8E9BAE] min-w-[500px]">
+                        <table className="w-full text-left text-xs text-[#A29A8B] min-w-[500px]">
                           <thead>
-                            <tr className="border-b border-[#222634] pb-2 font-black text-white">
+                            <tr className="border-b border-[#34302B] pb-2 font-black text-white">
                               <th className="py-2.5">Date Completed</th>
                               <th className="py-2.5">Duration Spent</th>
                               <th className="py-2.5">Score Achieved</th>
@@ -2817,7 +3252,7 @@ export default function SubjectPortal() {
                           </thead>
                           <tbody>
                             {mockExams.map((ex) => (
-                              <tr key={ex.id} className="border-b border-[#222634]/60 hover:bg-white/[0.01] transition-all">
+                              <tr key={ex.id} className="border-b border-[#34302B]/60 hover:bg-white/[0.01] transition-all">
                                 <td className="py-3.5 font-medium text-white">
                                   {ex.completed_at ? new Date(ex.completed_at).toLocaleDateString() : new Date(ex.created_at).toLocaleDateString()}
                                 </td>
@@ -2837,12 +3272,21 @@ export default function SubjectPortal() {
                                   {ex.status}
                                 </td>
                                 <td className="py-3.5 text-right">
-                                  <button
-                                    onClick={() => setActiveExam(ex)}
-                                    className="text-[#66FCF1] hover:underline font-extrabold cursor-pointer"
-                                  >
-                                    View Performance Details
-                                  </button>
+                                  <div className="flex items-center justify-end gap-2">
+                                    <button
+                                      onClick={() => setActiveExam(ex)}
+                                      className="text-[#A7C4A0] hover:underline font-extrabold cursor-pointer"
+                                    >
+                                      View Performance Details
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteMockExam(ex.id)}
+                                      className="p-1.5 rounded text-[#A29A8B] hover:text-red-400 hover:bg-[#34302B] transition-colors cursor-pointer"
+                                      title="Delete this exam attempt"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             ))}
@@ -2855,7 +3299,7 @@ export default function SubjectPortal() {
               ) : activeExam.status === 'in_progress' ? (
                 // TIMED EXAM WORKSPACE
                 <div className="flex flex-col gap-6 max-w-4xl mx-auto">
-                  <div className="bg-[#1C1F2E] border border-orange-500/30 rounded-2xl p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden">
+                  <div className="bg-[#262320] border border-orange-500/30 rounded-2xl p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden">
                     <div>
                       <span className="text-[10px] bg-orange-500/20 border border-orange-500/30 text-orange-400 px-3 py-1 rounded-full font-black uppercase tracking-wider">
                         Timed Simulator Mode
@@ -2864,28 +3308,28 @@ export default function SubjectPortal() {
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <div className="text-right">
-                        <span className="text-[9px] text-[#8E9BAE] block uppercase font-bold">Time remaining</span>
+                        <span className="text-[9px] text-[#A29A8B] block uppercase font-bold">Time remaining</span>
                         <span className="text-2xl font-black font-mono text-white">
                           {String(Math.floor(examTimer / 60)).padStart(2, '0')}:
                           {String(examTimer % 60).padStart(2, '0')}
                         </span>
                       </div>
-                      <Clock className="w-8 h-8 text-[#66FCF1] animate-pulse" />
+                      <Clock className="w-8 h-8 text-[#A7C4A0] animate-pulse" />
                     </div>
                   </div>
 
                   <div className="flex flex-col gap-6 mt-2">
                     {activeExam.questions.map((q, idx) => (
-                      <div key={q.id} className="glass rounded-2xl p-6 border border-[#222634] flex flex-col gap-3">
-                        <span className="text-[10px] text-[#66FCF1] font-black uppercase tracking-wider block">Question {idx + 1} of 3</span>
+                      <div key={q.id} className="glass rounded-2xl p-6 border border-[#34302B] flex flex-col gap-3">
+                        <span className="text-[10px] text-[#A7C4A0] font-black uppercase tracking-wider block">Question {idx + 1} of 3</span>
                         <h4 className="text-sm font-black text-white leading-relaxed">{q.question}</h4>
-                        <span className="text-[9px] text-[#8E9BAE] italic block -mt-1">Mapped to: {q.reference_source}</span>
+                        <span className="text-[9px] text-[#A29A8B] italic block -mt-1">Mapped to: {q.reference_source}</span>
                         <textarea
                           placeholder="Type your structured analytical solution here... Include code, derivations, and concrete proofs where applicable."
                           value={studentAnswers[q.id] || ""}
                           onChange={(e) => setStudentAnswers(prev => ({ ...prev, [q.id]: e.target.value }))}
                           rows={6}
-                          className="bg-[#0B0C10] border border-[#222634] text-white text-xs rounded-xl p-4 mt-1 w-full focus:outline-none focus:border-[#66FCF1] resize-y placeholder:text-[#4F5B73]"
+                          className="bg-[#141312] border border-[#34302B] text-white text-xs rounded-xl p-4 mt-1 w-full focus:outline-none focus:border-[#A7C4A0] resize-y placeholder:text-[#6E685C]"
                         />
                       </div>
                     ))}
@@ -2899,18 +3343,18 @@ export default function SubjectPortal() {
                           setExamTimerRunning(false);
                         }
                       }}
-                      className="px-5 py-3 border border-[#222634] hover:bg-white/[0.02] text-[#8E9BAE] hover:text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
+                      className="px-5 py-3 border border-[#34302B] hover:bg-white/[0.02] text-[#A29A8B] hover:text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                     >
                       Discard & Cancel
                     </button>
                     <button
                       onClick={() => performSubmitExam(activeExam.id, studentAnswers)}
                       disabled={submittingExam}
-                      className="bg-emerald-500 hover:bg-emerald-400 text-[#0B0C10] px-6 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                      className="bg-emerald-500 hover:bg-emerald-400 text-[#141312] px-6 py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
                     >
                       {submittingExam ? (
                         <>
-                          <div className="w-3.5 h-3.5 border-t-2 border-[#0B0C10] border-solid rounded-full animate-spin"></div>
+                          <div className="w-3.5 h-3.5 border-t-2 border-[#141312] border-solid rounded-full animate-spin"></div>
                           Auto Grading via AI...
                         </>
                       ) : (
@@ -2925,34 +3369,34 @@ export default function SubjectPortal() {
                   <div className="flex justify-between items-center">
                     <button
                       onClick={() => setActiveExam(null)}
-                      className="flex items-center gap-1.5 text-xs text-[#8E9BAE] hover:text-white transition-all font-black uppercase tracking-wider cursor-pointer"
+                      className="flex items-center gap-1.5 text-xs text-[#A29A8B] hover:text-white transition-all font-black uppercase tracking-wider cursor-pointer"
                     >
                       <ArrowLeft className="w-4 h-4" /> Back to History
                     </button>
-                    <span className="text-xs text-[#8E9BAE]">
+                    <span className="text-xs text-[#A29A8B]">
                       Session completed on {activeExam.completed_at ? new Date(activeExam.completed_at).toLocaleString() : ""}
                     </span>
                   </div>
 
                   {/* SCORE CARD CONTAINER */}
-                  <div className="glass rounded-3xl p-6 md:p-8 border border-[#222634] flex flex-col md:flex-row items-center justify-between gap-8 relative overflow-hidden">
+                  <div className="glass rounded-3xl p-6 md:p-8 border border-[#34302B] flex flex-col md:flex-row items-center justify-between gap-8 relative overflow-hidden">
                     <div className="flex flex-col items-center md:items-start text-center md:text-left gap-2 z-10">
                       <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-full font-black uppercase tracking-wider">
                         Graded Exam Sheet
                       </span>
                       <h3 className="text-2xl font-black text-white mt-2">Mock Exam Performance Profile</h3>
-                      <p className="text-xs text-[#8E9BAE] mt-1 max-w-md leading-relaxed">
+                      <p className="text-xs text-[#A29A8B] mt-1 max-w-md leading-relaxed">
                         The AI evaluated your conceptual solutions based on RAG verification. Review weak areas highlighted below to refine your finals prep.
                       </p>
                     </div>
 
                     <div className="flex items-center gap-6 shrink-0 z-10">
                       <div className="text-center">
-                        <span className="text-[9px] text-[#8E9BAE] uppercase font-bold block mb-1">Overall Grade</span>
-                        <div className="relative w-28 h-28 flex items-center justify-center rounded-full bg-[#66FCF1]/5 border-4 border-[#66FCF1] shadow-lg shadow-[#66FCF1]/10">
+                        <span className="text-[9px] text-[#A29A8B] uppercase font-bold block mb-1">Overall Grade</span>
+                        <div className="relative w-28 h-28 flex items-center justify-center rounded-full bg-[#A7C4A0]/5 border-4 border-[#A7C4A0] shadow-lg shadow-[#A7C4A0]/10">
                           <div className="text-center">
                             <span className="text-3xl font-black text-white">{activeExam.score.toFixed(0)}%</span>
-                            <span className="text-[9px] text-[#66FCF1] font-bold block">
+                            <span className="text-[9px] text-[#A7C4A0] font-bold block">
                               {activeExam.score >= 85 ? 'A - Elite' : activeExam.score >= 70 ? 'B - Strong' : 'C - Focus'}
                             </span>
                           </div>
@@ -2960,7 +3404,7 @@ export default function SubjectPortal() {
                       </div>
                     </div>
 
-                    <div className="absolute right-0 bottom-0 text-[#66FCF1]/5 -mr-10 -mb-10 pointer-events-none select-none">
+                    <div className="absolute right-0 bottom-0 text-[#A7C4A0]/5 -mr-10 -mb-10 pointer-events-none select-none">
                       <Award className="w-48 h-48" />
                     </div>
                   </div>
@@ -2968,10 +3412,10 @@ export default function SubjectPortal() {
                   {/* QUESTION BY QUESTION EVALUATION */}
                   <div className="flex flex-col gap-6 mt-2">
                     {activeExam.questions.map((q, idx) => (
-                      <div key={q.id} className="glass rounded-2xl p-6 border border-[#222634] flex flex-col gap-4">
+                      <div key={q.id} className="glass rounded-2xl p-6 border border-[#34302B] flex flex-col gap-4">
                         <div className="flex justify-between items-start gap-4">
                           <div>
-                            <span className="text-[10px] text-[#8E9BAE] font-black uppercase tracking-wider block">Question {idx + 1}</span>
+                            <span className="text-[10px] text-[#A29A8B] font-black uppercase tracking-wider block">Question {idx + 1}</span>
                             <h4 className="text-sm font-extrabold text-white mt-1 leading-relaxed">{q.question}</h4>
                           </div>
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
@@ -2984,22 +3428,22 @@ export default function SubjectPortal() {
                         </div>
 
                         {/* STUDENT RESPONSE */}
-                        <div className="bg-[#0B0C10]/40 rounded-xl p-4 border border-[#222634]/60">
-                          <span className="text-[9px] text-[#8E9BAE] uppercase font-bold block mb-1">Your Solution Draft:</span>
-                          <div className="text-xs text-[#E2E8F0] leading-relaxed">
+                        <div className="bg-[#141312]/40 rounded-xl p-4 border border-[#34302B]/60">
+                          <span className="text-[9px] text-[#A29A8B] uppercase font-bold block mb-1">Your Solution Draft:</span>
+                          <div className="text-xs text-[#ECE6DA] leading-relaxed">
                             {renderFormattedMessage(q.user_answer || "No response submitted.")}
                           </div>
                         </div>
 
                         {/* AI COACH FEEDBACK */}
-                        <div className="bg-[#66FCF1]/5 border border-[#66FCF1]/20 rounded-xl p-4">
-                          <span className="text-[9px] text-[#66FCF1] uppercase font-black tracking-widest block mb-1 flex items-center gap-1">
-                            <Sparkles className="w-3 h-3 animate-pulse" /> AI feedback & coaching recommendations:
+                        <div className="bg-[#A7C4A0]/5 border border-[#A7C4A0]/20 rounded-xl p-4">
+                          <span className="text-[9px] text-[#A7C4A0] uppercase font-black tracking-widest block mb-1 flex items-center gap-1">
+                            AI feedback & coaching recommendations:
                           </span>
-                          <div className="text-xs text-[#D1F2F0] leading-relaxed mt-1.5">
+                          <div className="text-xs text-[#CBDDC4] leading-relaxed mt-1.5">
                             {renderFormattedMessage(q.ai_feedback || "")}
                           </div>
-                          <span className="text-[9px] text-[#8E9BAE] italic block mt-3">Verified reference scope: {q.reference_source}</span>
+                          <span className="text-[9px] text-[#A29A8B] italic block mt-3">Verified reference scope: {q.reference_source}</span>
                         </div>
                       </div>
                     ))}
@@ -3016,60 +3460,146 @@ export default function SubjectPortal() {
               <div className="lg:col-span-2 flex flex-col gap-6">
                 <div className="flex justify-between items-center">
                   <div>
-                    <h2 className="text-base font-extrabold text-white flex items-center gap-1.5">
-                      <Calculator className="w-5 h-5 text-[#66FCF1]" /> Formula Reference Sheets
+                    <h2 className="font-display text-base font-semibold text-[#ECE6DA] flex items-center gap-1.5">
+                      <Calculator className="w-5 h-5 text-[#A7C4A0]" /> Cheat sheet
                     </h2>
-                    <p className="text-xs text-[#8E9BAE]">LaTeX rendered formulas, variables breakdown and dynamic solvers.</p>
+                    <p className="text-xs text-[#A29A8B]">LaTeX rendered formulas, variables breakdown and dynamic solvers.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowAddFormula(v => !v)}
+                      className="flex items-center gap-1.5 bg-[#34302B] text-[#A7C4A0] hover:bg-[#34302B] transition-all text-xs font-extrabold px-4 py-2 rounded-lg cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add Formula
+                    </button>
+                    <button
+                      onClick={() => setShowCheatSheetModal(true)}
+                      className="flex items-center gap-1.5 bg-[#A7C4A0] text-[#141312] hover:bg-[#90AE88] transition-all text-xs font-extrabold px-4 py-2 rounded-lg cursor-pointer"
+                    >
+                      Generate Cheat Sheet
+                    </button>
                   </div>
                 </div>
 
+                {showAddFormula && (
+                  <form onSubmit={handleCreateManualFormula} className="glass rounded-xl p-5 border border-[#A7C4A0]/30 flex flex-col gap-3">
+                    <input
+                      value={newFormulaName}
+                      onChange={(e) => setNewFormulaName(e.target.value)}
+                      placeholder="Formula name (e.g. Bayes' Theorem)"
+                      required
+                      className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                    />
+                    <input
+                      value={newFormulaLatex}
+                      onChange={(e) => setNewFormulaLatex(e.target.value)}
+                      placeholder="Formula / LaTeX (e.g. P(A|B) = P(B|A)P(A) / P(B))"
+                      required
+                      className="w-full bg-[#141312] border border-[#34302B] text-[#A7C4A0] font-mono rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                    />
+                    <textarea
+                      value={newFormulaDesc}
+                      onChange={(e) => setNewFormulaDesc(e.target.value)}
+                      placeholder="Description / when to use it (optional)"
+                      rows={2}
+                      className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                    />
+                    <div className="flex items-center justify-end gap-2">
+                      <button type="button" onClick={() => setShowAddFormula(false)} className="text-xs text-[#A29A8B] hover:text-white px-3 py-2 cursor-pointer">Cancel</button>
+                      <button type="submit" className="bg-[#A7C4A0] text-[#141312] text-xs font-extrabold px-4 py-2 rounded-lg hover:bg-[#90AE88] cursor-pointer">Save Formula</button>
+                    </div>
+                  </form>
+                )}
+
                 {formulas.length === 0 ? (
-                  <div className="glass rounded-2xl p-12 border border-[#222634] text-center text-xs text-[#8E9BAE]">
-                    Ingest textbooks or slides to auto-compile equations and cheat sheets.
+                  <div className="glass rounded-2xl p-12 border border-[#34302B] text-center text-xs text-[#A29A8B]">
+                    No cheat-sheet entries yet. Click "Generate Cheat Sheet" to compile formulas from your uploaded materials, or add one manually.
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {formulas.map((f) => (
-                      <div key={f.id} className="glass rounded-2xl p-5 border border-[#222634] flex flex-col justify-between gap-4">
+                      editingFormulaId === f.id ? (
+                        <form key={f.id} onSubmit={handleSaveFormulaEdit} className="glass rounded-2xl p-5 border border-[#A7C4A0]/30 flex flex-col gap-3">
+                          <input
+                            value={editFormulaName}
+                            onChange={(e) => setEditFormulaName(e.target.value)}
+                            required
+                            className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs font-black focus:outline-none focus:border-[#A7C4A0]"
+                          />
+                          <input
+                            value={editFormulaLatex}
+                            onChange={(e) => setEditFormulaLatex(e.target.value)}
+                            required
+                            className="w-full bg-[#141312] border border-[#34302B] text-[#A7C4A0] font-mono rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                          />
+                          <textarea
+                            value={editFormulaDesc}
+                            onChange={(e) => setEditFormulaDesc(e.target.value)}
+                            rows={3}
+                            className="w-full bg-[#141312] border border-[#34302B] text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#A7C4A0]"
+                          />
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => setEditingFormulaId(null)} className="text-xs text-[#A29A8B] hover:text-white px-3 py-2 cursor-pointer">Cancel</button>
+                            <button type="submit" className="bg-[#A7C4A0] text-[#141312] text-xs font-extrabold px-4 py-2 rounded-lg hover:bg-[#90AE88] cursor-pointer">Save</button>
+                          </div>
+                        </form>
+                      ) : (
+                      <div key={f.id} className="glass rounded-2xl p-5 border border-[#34302B] flex flex-col justify-between gap-4">
                         <div>
                           <div className="flex justify-between items-start gap-4">
                             <h3 className="text-sm font-black text-white leading-tight">{f.name}</h3>
-                            <button
-                              onClick={() => handleOpenCalculator(f)}
-                              title="Open variable micro-calculator solver"
-                              className="bg-[#66FCF1]/10 hover:bg-[#66FCF1] hover:text-[#0B0C10] border border-[#66FCF1]/30 text-[#66FCF1] px-2 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 shrink-0"
-                            >
-                              <Calculator className="w-3.5 h-3.5" /> Solve
-                            </button>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => handleOpenCalculator(f)}
+                                title="Open variable micro-calculator solver"
+                                className="bg-[#A7C4A0]/10 hover:bg-[#A7C4A0] hover:text-[#141312] border border-[#A7C4A0]/30 text-[#A7C4A0] px-2 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1"
+                              >
+                                <Calculator className="w-3.5 h-3.5" /> Solve
+                              </button>
+                              <button
+                                onClick={() => startEditFormula(f)}
+                                className="p-1.5 rounded text-[#A29A8B] hover:text-[#A7C4A0] hover:bg-[#34302B] transition-colors cursor-pointer"
+                                title="Edit formula"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteFormula(f.id)}
+                                className="p-1.5 rounded text-[#A29A8B] hover:text-red-400 hover:bg-[#34302B] transition-colors cursor-pointer"
+                                title="Delete formula"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
 
                           {/* sleek glow LaTeX render container */}
-                          <div className="bg-[#0B0C10]/60 border border-[#222634] rounded-xl p-4.5 my-3 flex items-center justify-center text-center shadow-inner overflow-x-auto">
-                            <span className="text-base font-bold text-[#66FCF1] font-mono tracking-wide whitespace-nowrap">
+                          <div className="bg-[#141312]/60 border border-[#34302B] rounded-xl p-4.5 my-3 flex items-center justify-center text-center shadow-inner overflow-x-auto">
+                            <span className="text-base font-bold text-[#A7C4A0] font-mono tracking-wide whitespace-nowrap">
                               {f.latex_code}
                             </span>
                           </div>
 
-                          <div className="text-xs text-[#8E9BAE] leading-relaxed mt-2.5">
+                          <div className="text-xs text-[#A29A8B] leading-relaxed mt-2.5">
                             {renderFormattedMessage(f.description || "")}
                           </div>
 
                           {/* Derivation breakdown list */}
                           {f.derivation_steps_json && (
-                            <div className="mt-4 border-t border-[#222634]/60 pt-3.5">
+                            <div className="mt-4 border-t border-[#34302B]/60 pt-3.5">
                               <span className="text-[9px] uppercase font-black tracking-wider text-white block mb-2">Step-by-Step Logic:</span>
                               <ul className="flex flex-col gap-1.5">
                                 {(() => {
                                   try {
                                     const steps = JSON.parse(f.derivation_steps_json);
                                     return steps.map((s: string, sIdx: number) => (
-                                      <li key={sIdx} className="text-[10px] text-[#8E9BAE] leading-relaxed flex items-start gap-1">
-                                        <span className="text-[#66FCF1] font-bold font-mono">{sIdx + 1}.</span>
+                                      <li key={sIdx} className="text-[10px] text-[#A29A8B] leading-relaxed flex items-start gap-1">
+                                        <span className="text-[#A7C4A0] font-bold font-mono">{sIdx + 1}.</span>
                                         <span>{s}</span>
                                       </li>
                                     ));
                                   } catch {
-                                    return <li className="text-[10px] text-[#8E9BAE]">Referenced directly from lectures.</li>;
+                                    return <li className="text-[10px] text-[#A29A8B]">Referenced directly from lectures.</li>;
                                   }
                                 })()}
                               </ul>
@@ -3078,26 +3608,27 @@ export default function SubjectPortal() {
                         </div>
 
                         {/* Custom Hand-written Bookmark study note */}
-                        <div className="mt-4 border-t border-[#222634]/60 pt-3">
-                          <span className="text-[9px] uppercase font-bold text-[#8E9BAE] block mb-1">Personal Study Notes:</span>
+                        <div className="mt-4 border-t border-[#34302B]/60 pt-3">
+                          <span className="text-[9px] uppercase font-bold text-[#A29A8B] block mb-1">Personal Study Notes:</span>
                           <div className="flex gap-2">
                             <input
                               type="text"
                               placeholder="Write bookmark, calculation tricks..."
                               value={formulaNoteText[f.id] || ""}
                               onChange={(e) => setFormulaNoteText(prev => ({ ...prev, [f.id]: e.target.value }))}
-                              className="flex-1 bg-[#0B0C10] border border-[#222634] text-[10px] text-white rounded px-2.5 py-1.5 focus:outline-none focus:border-[#66FCF1]"
+                              className="flex-1 bg-[#141312] border border-[#34302B] text-[10px] text-white rounded px-2.5 py-1.5 focus:outline-none focus:border-[#A7C4A0]"
                             />
                             <button
                               onClick={() => handleAddFormulaNote(f.id)}
                               disabled={savingFormulaNote === f.id}
-                              className="bg-[#66FCF1]/10 border border-[#66FCF1]/30 hover:bg-[#66FCF1] hover:text-[#0B0C10] text-[#66FCF1] transition-all px-2.5 py-1.5 rounded text-[10px] font-black uppercase tracking-wider cursor-pointer"
+                              className="bg-[#A7C4A0]/10 border border-[#A7C4A0]/30 hover:bg-[#A7C4A0] hover:text-[#141312] text-[#A7C4A0] transition-all px-2.5 py-1.5 rounded text-[10px] font-black uppercase tracking-wider cursor-pointer"
                             >
                               {savingFormulaNote === f.id ? "Saving..." : "Save"}
                             </button>
                           </div>
                         </div>
                       </div>
+                      )
                     ))}
                   </div>
                 )}
@@ -3105,86 +3636,149 @@ export default function SubjectPortal() {
 
               {/* Dynamic side slider solver */}
               <div className="lg:col-span-1">
-                <div className="glass rounded-2xl p-6 border border-[#222634] sticky top-6">
+                <div className="glass rounded-2xl p-6 border border-[#34302B] sticky top-6">
                   <h3 className="text-sm font-extrabold text-white mb-3 flex items-center gap-1.5">
-                    <Calculator className="w-4 h-4 text-[#66FCF1]" /> Micro-Calculator Simulator
+                    <Calculator className="w-4 h-4 text-[#A7C4A0]" /> Solve with your numbers
                   </h3>
 
                   {!activeCalculatorFormula ? (
-                    <div className="text-center text-xs text-[#8E9BAE] py-8 leading-relaxed">
+                    <div className="text-center text-xs text-[#A29A8B] py-8 leading-relaxed">
                       Click the "Solve" button on any formula card to dynamically evaluate values in real-time.
                     </div>
                   ) : (
                     <div className="flex flex-col gap-4">
                       <div>
                         <div className="flex justify-between items-center">
-                          <span className="text-[9px] uppercase font-bold text-[#8E9BAE]">Active Solver</span>
+                          <span className="text-[9px] uppercase font-bold text-[#A29A8B]">Active Solver</span>
                           <button
                             onClick={() => setActiveCalculatorFormula(null)}
-                            className="text-[#8E9BAE] hover:text-white p-0.5 cursor-pointer"
+                            className="text-[#A29A8B] hover:text-white p-0.5 cursor-pointer"
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
                         </div>
                         <h4 className="text-xs font-black text-white mt-1">{activeCalculatorFormula.name}</h4>
-                        <span className="text-[10px] text-[#66FCF1] font-mono block mt-1">{activeCalculatorFormula.latex_code}</span>
+                        <span className="text-[10px] text-[#A7C4A0] font-mono block mt-1">{activeCalculatorFormula.latex_code}</span>
                       </div>
 
                       {/* Dynamic form inputs */}
-                      <div className="flex flex-col gap-3.5 border-t border-[#222634]/60 pt-4 mt-2">
+                      <div className="flex flex-col gap-3.5 border-t border-[#34302B]/60 pt-4 mt-2">
                         {(() => {
                           try {
                             const vars = JSON.parse(activeCalculatorFormula.variables_json || "[]");
                             return vars.map((v: any) => (
                               <div key={v.symbol} className="flex justify-between items-center gap-4">
                                 <div className="text-left max-w-[150px]">
-                                  <span className="text-[10px] font-black font-mono text-[#66FCF1] block">{v.symbol}</span>
-                                  <span className="text-[9px] text-[#8E9BAE] block leading-tight">{v.meaning}</span>
+                                  <span className="text-[10px] font-black font-mono text-[#A7C4A0] block">{v.symbol}</span>
+                                  <span className="text-[9px] text-[#A29A8B] block leading-tight">{v.meaning}</span>
                                 </div>
                                 <input
                                   type="number"
                                   step="any"
                                   value={calculatorInputs[v.symbol] ?? 0}
                                   onChange={(e) => setCalculatorInputs(prev => ({ ...prev, [v.symbol]: parseFloat(e.target.value) || 0 }))}
-                                  className="w-24 bg-[#0B0C10] border border-[#222634] text-white text-xs rounded p-2 focus:outline-none focus:border-[#66FCF1] text-right font-mono"
+                                  className="w-24 bg-[#141312] border border-[#34302B] text-white text-xs rounded p-2 focus:outline-none focus:border-[#A7C4A0] text-right font-mono"
                                 />
                               </div>
                             ));
                           } catch {
-                            return <span className="text-[10px] text-[#8E9BAE]">Error processing variables list.</span>;
+                            return <span className="text-[10px] text-[#A29A8B]">Error processing variables list.</span>;
                           }
                         })()}
                       </div>
 
                       <button
                         onClick={handleRunCalculator}
-                        className="bg-[#66FCF1] hover:bg-[#45E3D8] text-[#0B0C10] px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all mt-4 cursor-pointer"
+                        className="bg-[#A7C4A0] hover:bg-[#90AE88] text-[#141312] px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all mt-4 cursor-pointer"
                       >
                         Compute Value
                       </button>
 
                       {calculatorResult !== null && (
-                        <div className="bg-[#66FCF1]/10 border border-[#66FCF1]/30 rounded-xl p-4 mt-3 text-center">
-                          <span className="text-[9px] uppercase font-black tracking-widest text-[#8E9BAE] block">Computed Solution</span>
-                          <span className="text-2xl font-black text-[#66FCF1] font-mono mt-1 block">
+                        <div className="bg-[#A7C4A0]/10 border border-[#A7C4A0]/30 rounded-xl p-4 mt-3 text-center">
+                          <span className="text-[9px] uppercase font-black tracking-widest text-[#A29A8B] block">Computed Solution</span>
+                          <span className="text-2xl font-black text-[#A7C4A0] font-mono mt-1 block">
                             {calculatorResult.toLocaleString(undefined, { maximumFractionDigits: 5 })}
                           </span>
-                          <span className="text-[9px] text-[#8E9BAE] italic block mt-1.5">Value computed using precise CPU operations.</span>
+                          <span className="text-[9px] text-[#A29A8B] italic block mt-1.5">Value computed using precise CPU operations.</span>
                         </div>
                       )}
                     </div>
                   )}
                 </div>
               </div>
+
+              {/* Generate Cheat Sheet modal: pick source materials */}
+              {showCheatSheetModal && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center px-4">
+                  <div className="bg-[#1D1B19] border border-[#34302B] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-sm font-extrabold text-white flex items-center gap-1.5">
+                        Generate Cheat Sheet
+                      </h3>
+                      <button onClick={() => setShowCheatSheetModal(false)} className="text-[#A29A8B] hover:text-white cursor-pointer">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-[#A29A8B] mb-4 leading-relaxed">
+                      Choose which resources the AI should compile formulas and key results from.
+                      Leave everything unchecked to use <b className="text-white">all materials</b>.
+                    </p>
+
+                    <div className="flex flex-col gap-2 max-h-52 overflow-y-auto mb-4 pr-1">
+                      {materials.length === 0 && (
+                        <div className="text-xs text-[#A29A8B] text-center py-6 border border-dashed border-[#34302B] rounded-lg">
+                          No materials uploaded yet — upload lecture files first.
+                        </div>
+                      )}
+                      {materials.map((m) => (
+                        <label key={m.id} className="flex items-center gap-2.5 bg-[#141312] border border-[#34302B] rounded-lg px-3 py-2.5 cursor-pointer hover:border-[#A7C4A0]/30 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={cheatSheetMaterialIds.includes(m.id)}
+                            onChange={(e) => {
+                              setCheatSheetMaterialIds(prev =>
+                                e.target.checked ? [...prev, m.id] : prev.filter(id => id !== m.id)
+                              );
+                            }}
+                            className="accent-[#A7C4A0] cursor-pointer"
+                          />
+                          <FileText className="w-3.5 h-3.5 text-[#A7C4A0]/70 shrink-0" />
+                          <span className="text-xs text-white truncate">{m.name}</span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <label className="flex items-center gap-2 mb-5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={cheatSheetReplace}
+                        onChange={(e) => setCheatSheetReplace(e.target.checked)}
+                        className="accent-[#A7C4A0] cursor-pointer"
+                      />
+                      <span className="text-xs text-[#A29A8B]">Replace existing entries (instead of adding to them)</span>
+                    </label>
+
+                    <button
+                      onClick={handleGenerateCheatSheet}
+                      disabled={generatingCheatSheet || materials.length === 0}
+                      className="w-full bg-[#A7C4A0] text-[#141312] font-extrabold text-xs py-3 rounded-xl hover:bg-[#90AE88] transition-all disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      {generatingCheatSheet ? "Compiling formulas from your materials..." : `Generate from ${cheatSheetMaterialIds.length === 0 ? "All" : cheatSheetMaterialIds.length} Resource${cheatSheetMaterialIds.length === 1 ? "" : "s"}`}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* TAB 8: NOTES / SCRATCHPAD */}
           {activeTab === 'notes' && (
-            <div className="flex h-[75vh] border border-[#222634] rounded-2xl overflow-hidden glass">
+            <div className="flex h-[75vh] border border-[#34302B] rounded-2xl overflow-hidden glass">
               {/* Sidebar List */}
-              <div className="w-1/4 min-w-[250px] border-r border-[#222634] bg-[#0B0C10]/50 flex flex-col">
-                <div className="p-4 border-b border-[#222634] flex justify-between items-center bg-[#151821]">
+              <div className="w-1/4 min-w-[250px] border-r border-[#34302B] bg-[#141312]/50 flex flex-col">
+                <div className="p-4 border-b border-[#34302B] flex justify-between items-center bg-[#1D1B19]">
                   <h3 className="font-extrabold text-white text-sm">Study Notes</h3>
                   <button 
                     onClick={async () => {
@@ -3194,10 +3788,10 @@ export default function SubjectPortal() {
                         setActiveNoteId(newNote.id);
                       } catch (e) {
                         console.error(e);
-                        alert("Failed to create note");
+                        toast("Couldn't create the note.", "error");
                       }
                     }}
-                    className="p-1.5 hover:bg-[#66FCF1]/10 rounded-md text-[#66FCF1] transition-colors"
+                    className="p-1.5 hover:bg-[#A7C4A0]/10 rounded-md text-[#A7C4A0] transition-colors"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
@@ -3207,22 +3801,22 @@ export default function SubjectPortal() {
                     <div 
                       key={note.id}
                       onClick={() => setActiveNoteId(note.id)}
-                      className={`p-4 border-b border-[#222634]/50 cursor-pointer transition-all ${
+                      className={`p-4 border-b border-[#34302B]/50 cursor-pointer transition-all ${
                         activeNoteId === note.id 
-                          ? 'bg-[#66FCF1]/10 border-l-2 border-l-[#66FCF1]' 
+                          ? 'bg-[#A7C4A0]/10 border-l-2 border-l-[#A7C4A0]' 
                           : 'hover:bg-white/[0.02]'
                       }`}
                     >
-                      <h4 className={`text-xs font-bold truncate ${activeNoteId === note.id ? 'text-[#66FCF1]' : 'text-white'}`}>
+                      <h4 className={`text-xs font-bold truncate ${activeNoteId === note.id ? 'text-[#A7C4A0]' : 'text-white'}`}>
                         {note.title || "Untitled Note"}
                       </h4>
-                      <p className="text-[10px] text-[#8E9BAE] mt-1 line-clamp-2">
+                      <p className="text-[10px] text-[#A29A8B] mt-1 line-clamp-2">
                         {note.content?.replace(/<[^>]*>?/gm, '').substring(0, 50) || "Empty note..."}
                       </p>
                     </div>
                   ))}
                   {notes.length === 0 && (
-                    <div className="p-6 text-center text-[#8E9BAE] text-[10px]">
+                    <div className="p-6 text-center text-[#A29A8B] text-[10px]">
                       No notes yet. Click the + button to create your first note!
                     </div>
                   )}
@@ -3230,14 +3824,14 @@ export default function SubjectPortal() {
               </div>
 
               {/* Editor Pane */}
-              <div className="flex-1 flex flex-col bg-[#0B0C10]/80">
+              <div className="flex-1 flex flex-col bg-[#141312]/80">
                 {activeNoteId ? (() => {
                   const activeNote = notes.find(n => n.id === activeNoteId);
                   if (!activeNote) return null;
                   
                   return (
                     <>
-                      <div className="p-4 border-b border-[#222634] flex justify-between items-center bg-[#151821]">
+                      <div className="p-4 border-b border-[#34302B] flex justify-between items-center bg-[#1D1B19]">
                         <input
                           type="text"
                           value={activeNote.title}
@@ -3253,7 +3847,7 @@ export default function SubjectPortal() {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => setShowMarkdownGuide(true)}
-                            className="text-[#8E9BAE] hover:text-[#66FCF1] p-2 transition-colors flex items-center gap-1"
+                            className="text-[#A29A8B] hover:text-[#A7C4A0] p-2 transition-colors flex items-center gap-1"
                             title="Markdown Guide"
                           >
                             <HelpCircle className="w-4 h-4" />
@@ -3269,10 +3863,10 @@ export default function SubjectPortal() {
                               else setActiveNoteId(null);
                             } catch (e) {
                               console.error(e);
-                              alert("Failed to delete");
+                              toast("Couldn't delete the note.", "error");
                             }
                           }}
-                          className="text-[#8E9BAE] hover:text-red-400 p-2 transition-colors ml-4"
+                          className="text-[#A29A8B] hover:text-red-400 p-2 transition-colors ml-4"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -3298,7 +3892,7 @@ export default function SubjectPortal() {
                     </>
                   );
                 })() : (
-                  <div className="flex-1 flex flex-col items-center justify-center text-[#8E9BAE]">
+                  <div className="flex-1 flex flex-col items-center justify-center text-[#A29A8B]">
                     <FileEdit className="w-12 h-12 mb-4 opacity-50" />
                     <p className="text-sm font-bold">Select a note or create a new one</p>
                     <p className="text-[10px] mt-2 max-w-sm text-center">
@@ -3312,13 +3906,13 @@ export default function SubjectPortal() {
         </>
       ) : (
         /* DISTRACTION FREE STUDY VIEW / POMODORO TIMER TENT */
-        <div className="fixed inset-0 bg-[#0B0C10] z-50 flex items-center justify-center p-6 md:p-12 overflow-y-auto">
+        <div className="fixed inset-0 bg-[#141312] z-50 flex items-center justify-center p-6 md:p-12 overflow-y-auto">
           <div className="w-full max-w-2xl text-center flex flex-col items-center gap-10">
             {/* Focus Mode Title header controls */}
-            <div className="w-full flex justify-between items-center border-b border-[#222634] pb-6">
+            <div className="w-full flex justify-between items-center border-b border-[#34302B] pb-6">
               <div className="text-left">
-                <span className="text-[10px] text-[#66FCF1] font-black uppercase tracking-widest flex items-center gap-1 mt-1">
-                  <Zap className="w-3.5 h-3.5 fill-[#66FCF1]/10" /> Proactive Focus Environment
+                <span className="text-[10px] text-[#A7C4A0] font-black uppercase tracking-widest flex items-center gap-1 mt-1">
+                  <Zap className="w-3.5 h-3.5 fill-[#A7C4A0]/10" /> Proactive Focus Environment
                 </span>
                 <h1 className="text-lg font-black text-white mt-1">{subject.name}</h1>
               </div>
@@ -3333,7 +3927,7 @@ export default function SubjectPortal() {
                   setSoundOn(false);
                   setActiveTab('overview');
                 }}
-                className="flex items-center gap-1.5 text-xs text-[#8E9BAE] hover:text-white transition-all font-bold cursor-pointer"
+                className="flex items-center gap-1.5 text-xs text-[#A29A8B] hover:text-white transition-all font-bold cursor-pointer"
               >
                 <Minimize2 className="w-4 h-4" /> Exit Focus
               </button>
@@ -3341,28 +3935,28 @@ export default function SubjectPortal() {
 
             {/* Pomodoro Clock Canvas */}
             <div className="flex flex-col items-center gap-8 relative py-8 w-full">
-              <div className="absolute inset-0 bg-gradient-to-b from-[#66FCF1]/5 to-transparent rounded-full blur-[100px] pointer-events-none -z-10" />
+              <div className="absolute inset-0 bg-gradient-to-b from-[#A7C4A0]/5 to-transparent rounded-full blur-[100px] pointer-events-none -z-10" />
               
               <div className="text-center space-y-2">
                 <span className={`text-[10px] uppercase font-black tracking-[0.2em] px-4 py-1.5 rounded-full border transition-all ${
                   isBreak 
                     ? 'bg-orange-500/10 text-orange-400 border-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.2)]' 
-                    : 'bg-[#66FCF1]/10 text-[#66FCF1] border-[#66FCF1]/30 shadow-[0_0_15px_rgba(102,252,241,0.2)]'
+                    : 'bg-[#A7C4A0]/10 text-[#A7C4A0] border-[#A7C4A0]/30 shadow-[0_0_15px_rgba(232,197,71,0.2)]'
                 }`}>
                   {isBreak ? 'Break Interval' : 'Deep Focus Active'}
                 </span>
                 {!isBreak && (
-                  <h2 className="text-2xl font-black text-white mt-4">{sessionTitle || "Deep Work Session"}</h2>
+                  <h2 className="font-display text-2xl font-semibold text-[#ECE6DA] mt-4">{sessionTitle || "Deep work session"}</h2>
                 )}
               </div>
               
               <div className="relative flex items-center justify-center">
                 {/* Glowing rings */}
                 {pomodoroRunning && (
-                  <div className="absolute w-64 h-64 md:w-80 md:h-80 rounded-full border border-[#66FCF1]/30 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite] opacity-20 pointer-events-none" />
+                  <div className="absolute w-64 h-64 md:w-80 md:h-80 rounded-full border border-[#A7C4A0]/30 animate-[ping_3s_cubic-bezier(0,0,0.2,1)_infinite] opacity-20 pointer-events-none" />
                 )}
                 <div className={`w-56 h-56 md:w-72 md:h-72 rounded-full flex items-center justify-center border-4 transition-all duration-1000 ${
-                  pomodoroRunning ? 'border-[#66FCF1] shadow-[0_0_40px_rgba(102,252,241,0.3)]' : 'border-[#222634]'
+                  pomodoroRunning ? 'border-[#A7C4A0] shadow-[0_0_40px_rgba(232,197,71,0.3)]' : 'border-[#34302B]'
                 }`}>
                   <div className="text-6xl md:text-8xl font-black text-white tracking-tighter select-none font-mono drop-shadow-[0_0_10px_rgba(255,255,255,0.2)]">
                     {String(Math.floor(timeLeft / 60)).padStart(2, '0')}:
@@ -3377,7 +3971,7 @@ export default function SubjectPortal() {
                   className={`w-14 h-14 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                     pomodoroRunning 
                       ? 'bg-orange-500/10 text-orange-400 border border-orange-500/30 hover:bg-orange-500/20' 
-                      : 'bg-[#66FCF1] text-[#0B0C10] shadow-[0_0_20px_rgba(102,252,241,0.4)] hover:shadow-[0_0_30px_rgba(102,252,241,0.6)] hover:bg-[#45E3D8]'
+                      : 'bg-[#A7C4A0] text-[#141312] hover:bg-[#90AE88]'
                   }`}
                 >
                   {pomodoroRunning ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 fill-current" />}
@@ -3389,7 +3983,7 @@ export default function SubjectPortal() {
                     setTimeLeft(25 * 60);
                     setIsBreak(false);
                   }}
-                  className="w-14 h-14 rounded-full bg-[#1C1F2E] border border-[#2B3045] text-[#8E9BAE] flex items-center justify-center hover:text-white hover:border-[#8E9BAE] transition-all cursor-pointer"
+                  className="w-14 h-14 rounded-full bg-[#262320] border border-[#34302B] text-[#A29A8B] flex items-center justify-center hover:text-white hover:border-[#A29A8B] transition-all cursor-pointer"
                 >
                   <RotateCcw className="w-5 h-5" />
                 </button>
@@ -3397,25 +3991,25 @@ export default function SubjectPortal() {
             </div>
 
             {/* Ambient sound selector controls */}
-            <div className="glass rounded-2xl p-5 w-full max-w-sm border border-[#222634] flex justify-between items-center">
+            <div className="glass rounded-2xl p-5 w-full max-w-sm border border-[#34302B] flex justify-between items-center">
               <div className="text-left">
                 <h3 className="text-xs font-bold text-white">Brown Noise Ambient Mixer</h3>
-                <p className="text-[10px] text-[#8E9BAE]">Blocks out distraction chatter.</p>
+                <p className="text-[10px] text-[#A29A8B]">Blocks out distraction chatter.</p>
               </div>
 
               <button
                 onClick={toggleSound}
                 className={`p-3 rounded-xl border transition-all cursor-pointer ${
                   soundOn 
-                    ? 'bg-[#66FCF1]/10 border-[#66FCF1]/30 text-[#66FCF1]' 
-                    : 'bg-[#0B0C10] border-[#222634] text-[#8E9BAE] hover:text-white'
+                    ? 'bg-[#A7C4A0]/10 border-[#A7C4A0]/30 text-[#A7C4A0]' 
+                    : 'bg-[#141312] border-[#34302B] text-[#A29A8B] hover:text-white'
                 }`}
               >
                 {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
               </button>
             </div>
 
-            <p className="text-xs text-[#8E9BAE] max-w-md leading-relaxed">
+            <p className="text-xs text-[#A29A8B] max-w-md leading-relaxed">
               *Pro tip:* Turn off all secondary browser windows. Focus deeply on your customized Leitner active recall cards to lock concepts into long term storage.
             </p>
           </div>
@@ -3423,59 +4017,59 @@ export default function SubjectPortal() {
       )}
       {/* Markdown Guide Overlay */}
       {showMarkdownGuide && (
-        <div className="fixed inset-0 bg-[#0B0C10]/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-[#151821] border border-[#222634] rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-2xl relative">
+        <div className="fixed inset-0 bg-[#141312]/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-[#1D1B19] border border-[#34302B] rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-2xl relative">
             <button 
               onClick={() => setShowMarkdownGuide(false)}
-              className="absolute top-4 right-4 text-[#8E9BAE] hover:text-white transition-colors"
+              className="absolute top-4 right-4 text-[#A29A8B] hover:text-white transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
             
             <h3 className="text-xl font-black text-white mb-6 flex items-center gap-2">
-              <FileEdit className="w-5 h-5 text-[#66FCF1]" /> Notepad Markdown Guide
+              <FileEdit className="w-5 h-5 text-[#A7C4A0]" /> Notepad Markdown Guide
             </h3>
             
-            <div className="space-y-4 text-sm text-[#8E9BAE]">
-              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#222634]">
-                <span className="font-mono text-[#66FCF1]"># (space)</span>
+            <div className="space-y-4 text-sm text-[#A29A8B]">
+              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#34302B]">
+                <span className="font-mono text-[#A7C4A0]"># (space)</span>
                 <span>Heading 1 (Large Title)</span>
               </div>
-              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#222634]">
-                <span className="font-mono text-[#66FCF1]">## (space)</span>
+              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#34302B]">
+                <span className="font-mono text-[#A7C4A0]">## (space)</span>
                 <span>Heading 2 (Medium Title)</span>
               </div>
-              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#222634]">
-                <span className="font-mono text-[#66FCF1]">### (space)</span>
+              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#34302B]">
+                <span className="font-mono text-[#A7C4A0]">### (space)</span>
                 <span>Heading 3 (Small Title)</span>
               </div>
-              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#222634]">
-                <span className="font-mono text-[#66FCF1]">[] (space)</span>
+              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#34302B]">
+                <span className="font-mono text-[#A7C4A0]">[] (space)</span>
                 <span>Task List / Checkbox Item</span>
               </div>
-              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#222634]">
-                <span className="font-mono text-[#66FCF1]">- (space)</span>
+              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#34302B]">
+                <span className="font-mono text-[#A7C4A0]">- (space)</span>
                 <span>Bullet List</span>
               </div>
-              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#222634]">
-                <span className="font-mono text-[#66FCF1]">1. (space)</span>
+              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#34302B]">
+                <span className="font-mono text-[#A7C4A0]">1. (space)</span>
                 <span>Numbered List</span>
               </div>
-              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#222634]">
-                <span className="font-mono text-[#66FCF1]">**text**</span>
+              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#34302B]">
+                <span className="font-mono text-[#A7C4A0]">**text**</span>
                 <span><strong>Bold Text</strong></span>
               </div>
-              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#222634]">
-                <span className="font-mono text-[#66FCF1]">*text*</span>
+              <div className="grid grid-cols-[100px_1fr] gap-4 pb-4 border-b border-[#34302B]">
+                <span className="font-mono text-[#A7C4A0]">*text*</span>
                 <span><em>Italic Text</em></span>
               </div>
               <div className="grid grid-cols-[100px_1fr] gap-4">
-                <span className="font-mono text-[#66FCF1]">&gt; (space)</span>
-                <span className="border-l-2 border-[#66FCF1] pl-2 blockquote text-white/70 italic">Blockquote</span>
+                <span className="font-mono text-[#A7C4A0]">&gt; (space)</span>
+                <span className="border-l-2 border-[#A7C4A0] pl-2 blockquote text-white/70 italic">Blockquote</span>
               </div>
             </div>
             
-            <p className="mt-8 text-[10px] text-center text-[#8E9BAE]/60">
+            <p className="mt-8 text-[10px] text-center text-[#A29A8B]/60">
               Just type these symbols at the start of a line (or around text) to instantly format your notes!
             </p>
           </div>

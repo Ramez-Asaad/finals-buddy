@@ -1,5 +1,57 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 
+/* ---------------- Auth session ---------------- */
+
+const TOKEN_KEY = "fb_token";
+const USER_KEY = "fb_user";
+
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+}
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function getStoredUser(): User | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setSession(token: string, user: User) {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+
+export function clearSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+/** fetch wrapper: attaches the bearer token; on 401 clears the session and
+ *  bounces to /login so expired sessions never strand the user on a dead page. */
+async function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(input, { ...init, headers });
+  if (res.status === 401 && typeof window !== "undefined") {
+    clearSession();
+    if (!window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
+  }
+  return res;
+}
+
 export interface Subject {
   id: number;
   name: string;
@@ -119,31 +171,31 @@ export interface ChatMessage {
 
 export const api = {
   async getDashboardSummary() {
-    const res = await fetch(`${API_BASE}/dashboard/summary`);
+    const res = await authFetch(`${API_BASE}/dashboard/summary`);
     if (!res.ok) throw new Error("Failed to load dashboard summary");
     return res.json();
   },
 
   async getRecommendations(): Promise<Recommendation[]> {
-    const res = await fetch(`${API_BASE}/dashboard/recommendations`);
+    const res = await authFetch(`${API_BASE}/dashboard/recommendations`);
     if (!res.ok) throw new Error("Failed to load recommendations");
     return res.json();
   },
 
   async getSubjects(): Promise<Subject[]> {
-    const res = await fetch(`${API_BASE}/subjects`);
+    const res = await authFetch(`${API_BASE}/subjects`);
     if (!res.ok) throw new Error("Failed to load subjects");
     return res.json();
   },
 
   async getSubject(id: number): Promise<SubjectDashboard> {
-    const res = await fetch(`${API_BASE}/subjects/${id}`);
+    const res = await authFetch(`${API_BASE}/subjects/${id}`);
     if (!res.ok) throw new Error("Failed to load subject detail");
     return res.json();
   },
 
   async createSubject(name: string, exam_date?: string, priority_level = 3, difficulty = 3): Promise<Subject> {
-    const res = await fetch(`${API_BASE}/subjects`, {
+    const res = await authFetch(`${API_BASE}/subjects`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, exam_date, priority_level, difficulty }),
@@ -153,7 +205,7 @@ export const api = {
   },
 
   async deleteSubject(id: number): Promise<void> {
-    const res = await fetch(`${API_BASE}/subjects/${id}`, { method: "DELETE" });
+    const res = await authFetch(`${API_BASE}/subjects/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error("Failed to delete subject");
   },
 
@@ -162,7 +214,7 @@ export const api = {
     formData.append("subject_id", subjectId.toString());
     formData.append("file", file);
 
-    const res = await fetch(`${API_BASE}/materials/upload`, {
+    const res = await authFetch(`${API_BASE}/materials/upload`, {
       method: "POST",
       body: formData,
     });
@@ -174,19 +226,19 @@ export const api = {
   },
 
   async getMaterials(subjectId: number): Promise<Material[]> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/materials`);
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/materials`);
     if (!res.ok) throw new Error("Failed to load materials");
     return res.json();
   },
 
   async getTasks(subjectId: number): Promise<Task[]> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/tasks`);
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/tasks`);
     if (!res.ok) throw new Error("Failed to load tasks");
     return res.json();
   },
 
   async createTask(task: Partial<Task>): Promise<Task> {
-    const res = await fetch(`${API_BASE}/tasks`, {
+    const res = await authFetch(`${API_BASE}/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(task),
@@ -196,7 +248,7 @@ export const api = {
   },
 
   async updateTask(taskId: number, status: 'pending' | 'completed'): Promise<Task> {
-    const res = await fetch(`${API_BASE}/tasks/${taskId}`, {
+    const res = await authFetch(`${API_BASE}/tasks/${taskId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
@@ -206,7 +258,7 @@ export const api = {
   },
 
   async createStudySession(sessionId: number, duration: number, focus: number, notes?: string, title?: string): Promise<StudySession> {
-    const res = await fetch(`${API_BASE}/study-sessions`, {
+    const res = await authFetch(`${API_BASE}/study-sessions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ subject_id: sessionId, duration_minutes: duration, focus_score: focus, notes, title }),
@@ -216,13 +268,13 @@ export const api = {
   },
 
   async getFlashcards(subjectId: number): Promise<Flashcard[]> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/flashcards`);
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/flashcards`);
     if (!res.ok) throw new Error("Failed to load flashcards");
     return res.json();
   },
 
   async reviewFlashcard(cardId: number, isCorrect: boolean): Promise<Flashcard> {
-    const res = await fetch(`${API_BASE}/flashcards/${cardId}/review`, {
+    const res = await authFetch(`${API_BASE}/flashcards/${cardId}/review`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ is_correct: isCorrect }),
@@ -232,13 +284,13 @@ export const api = {
   },
 
   async getQuizzes(subjectId: number): Promise<Quiz[]> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/quizzes`);
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/quizzes`);
     if (!res.ok) throw new Error("Failed to load quizzes");
     return res.json();
   },
 
   async submitQuizAnswer(quizId: number, answer: string) {
-    const res = await fetch(`${API_BASE}/quizzes/${quizId}/answer`, {
+    const res = await authFetch(`${API_BASE}/quizzes/${quizId}/answer`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ user_answer: answer }),
@@ -253,7 +305,7 @@ export const api = {
     formData.append("query", query);
     formData.append("mode", mode);
 
-    const res = await fetch(`${API_BASE}/tutor/chat`, {
+    const res = await authFetch(`${API_BASE}/tutor/chat`, {
       method: "POST",
       body: formData,
     });
@@ -262,13 +314,13 @@ export const api = {
   },
 
   async getNotes(subjectId: number): Promise<Note[]> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/notes`);
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/notes`);
     if (!res.ok) throw new Error("Failed to fetch notes");
     return res.json();
   },
 
   async createNote(subjectId: number, title: string, content: string = ""): Promise<Note> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/notes`, {
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/notes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title, content }),
@@ -278,7 +330,7 @@ export const api = {
   },
 
   async updateNote(noteId: number, data: { title?: string, content?: string }): Promise<Note> {
-    const res = await fetch(`${API_BASE}/notes/${noteId}`, {
+    const res = await authFetch(`${API_BASE}/notes/${noteId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -288,7 +340,7 @@ export const api = {
   },
 
   async deleteNote(noteId: number): Promise<void> {
-    const res = await fetch(`${API_BASE}/notes/${noteId}`, {
+    const res = await authFetch(`${API_BASE}/notes/${noteId}`, {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("Failed to delete note");
@@ -297,7 +349,7 @@ export const api = {
   async uploadFile(file: File): Promise<{ url: string }> {
     const formData = new FormData();
     formData.append("file", file);
-    const res = await fetch(`${API_BASE}/upload`, {
+    const res = await authFetch(`${API_BASE}/upload`, {
       method: "POST",
       body: formData,
     });
@@ -306,7 +358,7 @@ export const api = {
   },
 
   async updateSubject(id: number, data: Partial<Subject>): Promise<Subject> {
-    const res = await fetch(`${API_BASE}/subjects/${id}`, {
+    const res = await authFetch(`${API_BASE}/subjects/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -316,7 +368,7 @@ export const api = {
   },
 
   async updateMaterial(id: number, data: { name?: string, learning_complexity?: number, importance_level?: number }): Promise<Material> {
-    const res = await fetch(`${API_BASE}/materials/${id}`, {
+    const res = await authFetch(`${API_BASE}/materials/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -326,20 +378,20 @@ export const api = {
   },
 
   async deleteMaterial(id: number): Promise<void> {
-    const res = await fetch(`${API_BASE}/materials/${id}`, {
+    const res = await authFetch(`${API_BASE}/materials/${id}`, {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("Failed to delete material");
   },
 
   async getChatHistory(subjectId: number): Promise<ChatMessage[]> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/chats`);
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/chats`);
     if (!res.ok) throw new Error("Failed to load chat history");
     return res.json();
   },
 
   async updateChatMessage(messageId: number, content: string): Promise<ChatMessage> {
-    const res = await fetch(`${API_BASE}/chats/${messageId}`, {
+    const res = await authFetch(`${API_BASE}/chats/${messageId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
@@ -349,20 +401,20 @@ export const api = {
   },
 
   async clearChatHistory(subjectId: number): Promise<void> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/chats`, {
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/chats`, {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("Failed to clear chat history");
   },
 
   async getMockExams(subjectId: number): Promise<MockExam[]> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/mock-exams`);
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/mock-exams`);
     if (!res.ok) throw new Error("Failed to load mock exams");
     return res.json();
   },
 
   async createMockExam(subjectId: number): Promise<MockExam> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/mock-exams`, {
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/mock-exams`, {
       method: "POST"
     });
     if (!res.ok) throw new Error("Failed to create mock exam");
@@ -370,7 +422,7 @@ export const api = {
   },
 
   async submitMockExam(examId: number, durationSeconds: number, answers: { question_id: number, user_answer: string }[]): Promise<MockExam> {
-    const res = await fetch(`${API_BASE}/mock-exams/${examId}/submit`, {
+    const res = await authFetch(`${API_BASE}/mock-exams/${examId}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ duration_seconds: durationSeconds, answers }),
@@ -380,13 +432,13 @@ export const api = {
   },
 
   async getFormulas(subjectId: number): Promise<Formula[]> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/formulas`);
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/formulas`);
     if (!res.ok) throw new Error("Failed to load formulas");
     return res.json();
   },
 
   async addFormulaNote(formulaId: number, note: string): Promise<{ description: string }> {
-    const res = await fetch(`${API_BASE}/formulas/${formulaId}/note`, {
+    const res = await authFetch(`${API_BASE}/formulas/${formulaId}/note`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ note }),
@@ -396,7 +448,7 @@ export const api = {
   },
 
   async createFlashcard(subjectId: number, front: string, back: string): Promise<Flashcard> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/flashcards`, {
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/flashcards`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ front, back }),
@@ -406,7 +458,7 @@ export const api = {
   },
 
   async updateFlashcard(cardId: number, data: Partial<{ front: string; back: string; box: number; material_id: number | null }>): Promise<Flashcard> {
-    const res = await fetch(`${API_BASE}/flashcards/${cardId}`, {
+    const res = await authFetch(`${API_BASE}/flashcards/${cardId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -416,14 +468,14 @@ export const api = {
   },
 
   async deleteFlashcard(cardId: number): Promise<void> {
-    const res = await fetch(`${API_BASE}/flashcards/${cardId}`, {
+    const res = await authFetch(`${API_BASE}/flashcards/${cardId}`, {
       method: "DELETE"
     });
     if (!res.ok) throw new Error("Failed to delete flashcard");
   },
 
   async getKnowledgeMap(subjectId: number): Promise<KnowledgeMap> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/map`);
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/map`);
     if (!res.ok) throw new Error("Failed to load curriculum map");
     return res.json();
   },
@@ -433,7 +485,7 @@ export const api = {
     if (materialId !== 'all') {
       payload.material_id = materialId;
     }
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/generate-more`, {
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/generate-more`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -443,10 +495,138 @@ export const api = {
   },
 
   async generateKnowledgeMap(subjectId: number): Promise<KnowledgeMap> {
-    const res = await fetch(`${API_BASE}/subjects/${subjectId}/generate-map`, {
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/generate-map`, {
       method: "POST"
     });
     if (!res.ok) throw new Error("Failed to generate curriculum map");
+    return res.json();
+  },
+
+  /* ---------------- Auth ---------------- */
+
+  async signup(name: string, email: string, password: string): Promise<User> {
+    const res = await fetch(`${API_BASE}/auth/signup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, email, password }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to create account");
+    }
+    const data = await res.json();
+    setSession(data.token, data.user);
+    return data.user;
+  },
+
+  async login(email: string, password: string): Promise<User> {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Incorrect email or password");
+    }
+    const data = await res.json();
+    setSession(data.token, data.user);
+    return data.user;
+  },
+
+  logout() {
+    clearSession();
+    window.location.href = "/login";
+  },
+
+  /* ---------------- Task CRUD (planner) ---------------- */
+
+  async patchTask(taskId: number, data: Partial<Pick<Task, "title" | "description" | "duration_minutes" | "due_date" | "status">>): Promise<Task> {
+    const res = await authFetch(`${API_BASE}/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to update task");
+    return res.json();
+  },
+
+  async deleteTask(taskId: number): Promise<void> {
+    const res = await authFetch(`${API_BASE}/tasks/${taskId}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete task");
+  },
+
+  /* ---------------- Quiz CRUD ---------------- */
+
+  async createQuiz(subjectId: number, data: { question: string; correct_answer: string; options?: string; type?: string; explanation?: string }): Promise<Quiz> {
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/quizzes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to create quiz question");
+    return res.json();
+  },
+
+  async updateQuiz(quizId: number, data: Partial<{ question: string; correct_answer: string; options: string; type: string; explanation: string }>): Promise<Quiz> {
+    const res = await authFetch(`${API_BASE}/quizzes/${quizId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to update quiz question");
+    return res.json();
+  },
+
+  async deleteQuiz(quizId: number): Promise<void> {
+    const res = await authFetch(`${API_BASE}/quizzes/${quizId}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete quiz question");
+  },
+
+  /* ---------------- Mock exam delete ---------------- */
+
+  async deleteMockExam(examId: number): Promise<void> {
+    const res = await authFetch(`${API_BASE}/mock-exams/${examId}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete mock exam");
+  },
+
+  /* ---------------- Formula / cheat-sheet CRUD ---------------- */
+
+  async createFormula(subjectId: number, data: { name: string; latex_code: string; description?: string }): Promise<Formula> {
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/formulas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to create formula");
+    return res.json();
+  },
+
+  async updateFormula(formulaId: number, data: Partial<{ name: string; latex_code: string; description: string }>): Promise<Formula> {
+    const res = await authFetch(`${API_BASE}/formulas/${formulaId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to update formula");
+    return res.json();
+  },
+
+  async deleteFormula(formulaId: number): Promise<void> {
+    const res = await authFetch(`${API_BASE}/formulas/${formulaId}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete formula");
+  },
+
+  async generateCheatSheet(subjectId: number, materialIds: number[], replaceExisting = false): Promise<Formula[]> {
+    const res = await authFetch(`${API_BASE}/subjects/${subjectId}/formulas/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ material_ids: materialIds, replace_existing: replaceExisting }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to generate cheat sheet");
+    }
     return res.json();
   }
 };
