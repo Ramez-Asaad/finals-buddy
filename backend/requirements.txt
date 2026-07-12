@@ -11,7 +11,16 @@ python-dotenv>=1.0.1
 python-multipart>=0.0.9
 python-pptx>=0.6.23
 langchain>=0.3.0
-langchain-ollama>=0.3.0
 langchain-groq>=0.3.0
 langchain-core>=0.3.0
 langgraph>=0.2.0
+
+# Local context compression before prompts reach Groq (cuts token spend
+# on large RAG chunks and pasted document text). Deliberately NOT installing
+# headroom-ai[all] here — that extra pulls in torch, mem0ai, qdrant-client,
+# and neo4j, and hnswlib needs a C++ toolchain, none of which the ARM64
+# deploy box needs. onnxruntime + transformers are the two deps the default
+# ONNX-based Kompress text compressor actually needs.
+headroom-ai>=0.31.0
+onnxruntime>=1.16.0
+transformers>=4.30.0,<6.0

@@ -3,20 +3,21 @@ Hybrid Token-Compressing RAG Chat.
 
 Architecture:
 - The Brain: Groq (llama-3.3-70b-versatile) handles tool-calling and reasoning.
-- The Compressor: Local Ollama (llama3.2) reads massive RAG chunks and summarizes them
-  to save Groq tokens and reduce cloud cost.
+- The Compressor: Headroom (local ONNX text compressor) reads massive RAG chunks and
+  summarizes them to save Groq tokens and reduce cloud cost.
 """
 import json
 import traceback
 from typing import Dict, Any, List
 
 from langchain_groq import ChatGroq
-from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
+from headroom import compress as headroom_compress
 
 from .vector_store import vector_store
 from ..config import GROQ_API_KEY, GROQ_API_KEY_2
+from ..errors import AIServiceError
 
 
 # ─── Global Tool Context ─────────────────────────────────────────────────────
@@ -59,36 +60,26 @@ def search_course_materials(query: str) -> str:
     _tool_context["last_sources"] = list(sources_seen)
     raw_text_payload = "\n\n---\n\n".join(raw_chunks)
 
-    # ─── The Token Compressor (Local Llama 3.2) ───
-    # We ask the local model to read the massive payload and summarize it.
-    print(f"  🗜️ Token Compressor: Local model summarizing {len(raw_text_payload)} chars of raw chunks...")
+    # ─── Token Compressor (Headroom, local ONNX — no network round-trip) ───
+    # Aggressive ratio: this is search-result/RAG-chunk content, not the
+    # active conversation, so headroom's own docs recommend target_ratio=0.2
+    # for this case ("logs, search results").
+    print(f"  🗜️ Headroom: Compressing {len(raw_text_payload)} chars of raw chunks...")
     try:
-        compressor = ChatOllama(
-            model="llama3.2",
-            base_url="http://localhost:11434",
-            temperature=0.0,
-            num_ctx=4096,
+        result = headroom_compress(
+            [{"role": "user", "content": raw_text_payload}],
+            model="llama-3.3-70b-versatile",
+            compress_user_messages=True,
+            protect_recent=0,
+            target_ratio=0.2,
         )
-        
-        compress_prompt = f"""You are a data extraction assistant.
-A user asked about: "{query}"
-
-Here are raw excerpts from their textbooks and lectures:
-{raw_text_payload}
-
-INSTRUCTIONS:
-Extract ONLY the facts relevant to the user's query from the excerpts above.
-Ignore irrelevant information. Do not add outside knowledge. 
-Include [Source X: Name] citations inline.
-Keep the summary incredibly dense, using bullet points, and UNDER 100 words strictly to save tokens."""
-
-        compressed_response = compressor.invoke([HumanMessage(content=compress_prompt)])
-        compressed_text = compressed_response.content
-        print(f"  ✅ Token Compressor: Reduced to {len(compressed_text)} chars payload.")
+        compressed_text = result.messages[0]["content"]
+        print(f"  ✅ Headroom: {result.tokens_before} → {result.tokens_after} tokens "
+              f"({result.compression_ratio:.0%} saved).")
         return compressed_text
 
     except Exception as e:
-        print(f"  ⚠️ Token Compressor failed: {e}. Returning raw chunks instead.")
+        print(f"  ⚠️ Headroom compression failed: {e}. Returning raw chunks instead.")
         return raw_text_payload
 
 
@@ -185,7 +176,7 @@ def run_langchain_chat(
 ) -> Dict[str, Any]:
     """
     Main entry point: runs the Groq manual tool-calling loop.
-    Tools execute locally, with `search_course_materials` using Ollama for token compression.
+    Tools execute locally, with `search_course_materials` using Headroom for token compression.
     """
     global _tool_context
     _tool_context = {
@@ -338,7 +329,7 @@ def run_langchain_chat(
                     "I couldn't find this in your materials. Could you rephrase or add more detail?"
             except Exception as direct_err:
                 print(f"❌ Direct fallback also failed: {direct_err}")
-                answer = "I'm sorry, I hit a temporary issue answering that. Please try asking again in a moment."
+                raise AIServiceError(f"The AI tutor failed to answer: {direct_err}. Please try again in a moment.") from direct_err
         else:
             answer = response.content
 
@@ -351,11 +342,9 @@ def run_langchain_chat(
             "sources": sources
         }
 
+    except AIServiceError:
+        raise
     except Exception as e:
         print(f"❌ LangChain Chat error: {e}")
         traceback.print_exc()
-
-        # Ultimate fallback to legacy agent
-        print("🔄 Falling back to legacy RAG tutor agent...")
-        from .agents import tutor_agent
-        return tutor_agent.answer_query(subject_id, query, mode)
+        raise AIServiceError(f"The AI tutor failed to answer: {e}. Please try again in a moment.") from e

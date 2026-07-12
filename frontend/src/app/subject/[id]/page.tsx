@@ -30,7 +30,7 @@ import {
   AlignLeft,
   Plus
 } from "lucide-react";
-import { api, API_BASE, getToken, SubjectDashboard, Material, Task, Flashcard, Quiz, MockExam, MockExamQuestion, Formula, Note } from "../../../lib/api";
+import { api, API_BASE, getToken, SubjectDashboard, Material, Task, Flashcard, Quiz, MockExam, Formula, Note } from "../../../lib/api";
 import NotionEditor from "../../../components/NotionEditor";
 import { toast } from "../../../components/Toast";
 
@@ -457,6 +457,7 @@ export default function SubjectPortal() {
   
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadStage, setUploadStage] = useState<{ step: number; label: string; icon: string } | null>(null);
 
@@ -563,6 +564,7 @@ export default function SubjectPortal() {
   async function loadSubjectData() {
     try {
       setLoading(true);
+      setLoadError(null);
       const subjDetails = await api.getSubject(subjectId);
       setSubject(subjDetails);
 
@@ -622,177 +624,7 @@ export default function SubjectPortal() {
       
     } catch (err) {
       console.error(err);
-      // Beautiful offline fallback details
-      setSubject({
-        id: subjectId,
-        name: subjectId === 2 ? "Computer Architecture (CS 302)" : "Operating Systems (CS 401)",
-        exam_date: subjectId === 2 ? "2026-05-24" : "2026-06-03",
-        priority_level: 5,
-        difficulty: 4,
-        confidence_score: 45.0,
-        materials_count: 2,
-        completion_percentage: 40.0,
-        hours_remaining: 8.5,
-        weak_topics: ["Paging Mechanisms", "LRU Cache Replacement"],
-        urgency_status: "high",
-        next_recommended_action: "Review active recall quizzes for exam readiness"
-      });
-
-      setMaterials([
-        {
-          id: 201,
-          subject_id: subjectId,
-          name: "Lecture_04_Virtual_Memory.pdf",
-          file_type: "pdf",
-          summary: "### Summary of Virtual Memory\n\nThis lecture introduces Virtual Memory spaces, mapping virtual page numbers (VPN) to physical frame numbers (PFN) via hierarchical page tables. Key details include Translation Lookaside Buffers (TLBs) to speed up translations, and page replacement algorithm trade-offs (FIFO, LRU, Optimal).",
-          key_concepts: JSON.stringify([
-            { concept: "Translation Lookaside Buffer (TLB)", explanation: "A high-speed cache hardware block containing recent page mappings to bypass slow RAM access.", difficulty_weight: 4 },
-            { concept: "Page Faults", explanation: "Interrupt triggered by hardware when a requested virtual page is not loaded in physical memory.", difficulty_weight: 3 }
-          ]),
-          learning_complexity: 4,
-          importance_level: 5,
-          created_at: new Date().toISOString()
-        }
-      ]);
-
-      setTasks([
-        {
-          id: 301,
-          subject_id: subjectId,
-          title: "Complete Page Table Parsing Exercise",
-          description: "Manually compute physical address translation for a 32-bit architecture with 4KB pages.",
-          duration_minutes: 45,
-          urgency_score: 8.0,
-          importance_score: 9.0,
-          status: "pending",
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 302,
-          subject_id: subjectId,
-          title: "Review TLB Hit Rate Formulas",
-          description: "Understand Effective Memory Access Time (EMAT) calculations and review homework questions.",
-          duration_minutes: 30,
-          urgency_score: 7.5,
-          importance_score: 8.0,
-          status: "completed",
-          completed_at: new Date().toISOString(),
-          created_at: new Date().toISOString()
-        }
-      ]);
-
-      setFlashcards([
-        {
-          id: 401,
-          subject_id: subjectId,
-          front: "What is a Translation Lookaside Buffer (TLB)?",
-          back: "A fast hardware cache of the page table that stores recent translations, bypassing multi-level RAM lookups.",
-          box: 1,
-          confidence: 50.0,
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 402,
-          subject_id: subjectId,
-          front: "What constitutes a page fault?",
-          back: "An interrupt raised by MMU when a program accesses a page mapped in virtual address space but not loaded in main memory.",
-          box: 2,
-          confidence: 65.0,
-          created_at: new Date().toISOString()
-        }
-      ]);
-
-      setQuizzes([
-        {
-          id: 501,
-          subject_id: subjectId,
-          question: "If a system uses 32-bit virtual addresses and a 4KB page size, how many entries are in a single-level page table?",
-          options: JSON.stringify([
-            "1,048,576 entries (2^20)",
-            "4,096 entries (2^12)",
-            "65,536 entries (2^16)",
-            "4,294,967,296 entries (2^32)"
-          ]),
-          correct_answer: "1,048,576 entries (2^20)",
-          type: "multiple_choice",
-          created_at: new Date().toISOString()
-        }
-      ]);
-
-      // Simulated offline mock exams
-      setMockExams([
-        {
-          id: 601,
-          subject_id: subjectId,
-          score: 85.0,
-          duration_seconds: 480,
-          completed_at: new Date().toISOString(),
-          status: "graded",
-          created_at: new Date().toISOString(),
-          questions: [
-            {
-              id: 611,
-              mock_exam_id: 601,
-              question: "Explain the concept of Thrashing in virtual memory. Under what conditions does it occur, and how does a Working Set Model solve this issue?",
-              user_answer: "Thrashing occurs when the system spends more time paging (swapping memory) than executing processes. This happens when active processes demand more physical pages than are currently available in memory. The Working Set Model tracks the set of pages frequently used by each process in a sliding time window, and only schedules processes if their entire working set can fit in RAM.",
-              ai_grade: 92.0,
-              ai_feedback: "Excellent coverage! You accurately defined Thrashing, its triggering conditions, and explained how working sets bound scheduling constraints to preserve page rate stability.",
-              reference_source: "Virtual Memory & Thrashing (Lecture slides)"
-            },
-            {
-              id: 612,
-              mock_exam_id: 601,
-              question: "Describe the critical section problem. Contrast Mutex locks and Semaphores as synchronization primitives, outlining a scenario where a Semaphore is strictly required.",
-              user_answer: "Mutexes are binary locks meant for mutual exclusion with owner ownership. Semaphores can have counts greater than one.",
-              ai_grade: 68.0,
-              ai_feedback: "You identified Mutexes as mutual exclusion locks, but failed to address how to solve the critical section problem (mutual exclusion, progress, bounded waiting). Additionally, a semaphore count is useful for tracking resource limits (e.g. producer-consumer pools) where no single process owns the lock.",
-              reference_source: "Process Synchronization (Lecture slides)"
-            }
-          ]
-        }
-      ]);
-
-      // Simulated offline formulas
-      setFormulas([
-        {
-          id: 701,
-          subject_id: subjectId,
-          name: "Average Memory Access Time (AMAT)",
-          latex_code: "AMAT = T_{TLB} + (1 - h) \\times T_{mem} + f \\times T_{disk}",
-          description: "Calculates average CPU performance cost when checking TLB, main memory page tables, and disk page swapping.",
-          variables_json: JSON.stringify([
-            {symbol: "T_{TLB}", meaning: "TLB lookup access time (typically 1-4ns)"},
-            {symbol: "h", meaning: "TLB hit ratio percentage (0.0 to 1.0)"},
-            {symbol: "T_{mem}", meaning: "Main memory access latency (typically 50-100ns)"},
-            {symbol: "f", meaning: "Page fault rate (percentage of page lookups yielding disk swap)"},
-            {symbol: "T_{disk}", meaning: "Disk page swap service time (typically 5-10ms)"}
-          ]),
-          derivation_steps_json: JSON.stringify([
-            "1. Perform fast TLB lookup first ($T_{TLB}$ cost).",
-            "2. If TLB miss occurs (with $(1-h)$ probability), incur extra read latency to query multi-level page tables in main memory ($T_{mem}$).",
-            "3. In the extreme case of a page fault (with $f$ probability), pause execution and wait for OS disk transfer interrupt ($T_{disk}$)."
-          ]),
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 702,
-          subject_id: subjectId,
-          name: "Page Table Size Calculation",
-          latex_code: "Size = \\frac{2^{bits_{virtual}}}{2^{bits_{page}}} \\times Size_{PTE}",
-          description: "Estimates memory required to hold a single-level page table mapping the virtual address space to physical memory frames.",
-          variables_json: JSON.stringify([
-            {"symbol": "bits_{virtual}", "meaning": "Addressing space width of virtual pointers (e.g., 32 or 64 bits)"},
-            {"symbol": "bits_{page}", "meaning": "Page offset bit size determining page boundaries (e.g., 12 bits for 4KB pages)"},
-            {"symbol": "Size_{PTE}", "meaning": "Individual page table entry byte length (typically 4 or 8 bytes)"}
-          ]),
-          derivation_steps_json: JSON.stringify([
-            "1. Compute total number of virtual pages available: $2^{bits_{virtual} - bits_{page}}$.",
-            "2. Multiply the page count by entry storage size ($Size_{PTE}$) to yield total capacity bytes.",
-            "3. Convert to Megabytes by dividing by $2^{20}$ to assess overhead impact."
-          ]),
-          created_at: new Date().toISOString()
-        }
-      ]);
+      setLoadError(err instanceof Error ? err.message : "Couldn't load this subject. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -869,7 +701,7 @@ export default function SubjectPortal() {
       const durationSeconds = (15 * 60) - examTimer;
 
       const gradedExam = await api.submitMockExam(examId, durationSeconds, answersPayload);
-      
+
       // Update in local lists
       setMockExams(prev => prev.map(ex => ex.id === examId ? gradedExam : ex));
       setActiveExam(gradedExam);
@@ -878,34 +710,8 @@ export default function SubjectPortal() {
       loadSubjectData();
     } catch (err) {
       console.error(err);
-      // Fallback submission grading simulation
-      setSubmittingExam(false);
-      const durationSeconds = (15 * 60) - examTimer;
-      const simulatedScore = 80.0;
-      const updatedExam: MockExam = {
-        ...activeExam!,
-        score: simulatedScore,
-        duration_seconds: durationSeconds,
-        status: 'graded',
-        completed_at: new Date().toISOString(),
-        questions: activeExam!.questions.map(q => ({
-          ...q,
-          user_answer: answersMap[q.id] || "No answer provided.",
-          ai_grade: 80.0,
-          ai_feedback: "Well written conceptual draft! Good retention of key themes and memory architecture constraints.",
-          reference_source: q.reference_source || "Lecture Materials"
-        }))
-      };
-      setMockExams(prev => prev.map(ex => ex.id === examId ? updatedExam : ex));
-      setActiveExam(updatedExam);
       setExamTimerRunning(false);
-      if (subject) {
-        setSubject({
-          ...subject,
-          confidence_score: Math.min(100.0, subject.confidence_score + 10)
-        });
-      }
-      toast("Answers recorded.", "success");
+      toast(err instanceof Error ? err.message : "Couldn't grade your exam. Please try again.", "error");
     } finally {
       setSubmittingExam(false);
     }
@@ -922,42 +728,7 @@ export default function SubjectPortal() {
       setExamTimerRunning(true);
     } catch (err) {
       console.error(err);
-      // Simulated new exam
-      const mockId = Date.now();
-      const mockQuestions: MockExamQuestion[] = [
-        {
-          id: mockId + 1,
-          mock_exam_id: mockId,
-          question: "Explain virtual memory paging structures. How does a Translation Lookaside Buffer (TLB) speed up page address resolution?",
-          reference_source: "Lecture_04_Virtual_Memory.pdf"
-        },
-        {
-          id: mockId + 2,
-          mock_exam_id: mockId,
-          question: "Describe the three conditions required to solve the critical section problem in multi-threaded execution.",
-          reference_source: "Process Synchronization & Locks"
-        },
-        {
-          id: mockId + 3,
-          mock_exam_id: mockId,
-          question: "How does 2-way set-associative cache mapping differ from direct cache mapping? Compute physical cache slot index if block size is 64 bytes.",
-          reference_source: "Cache Architecture & Blocks"
-        }
-      ];
-      const exam: MockExam = {
-        id: mockId,
-        subject_id: subjectId,
-        score: 0.0,
-        duration_seconds: 0,
-        status: 'in_progress',
-        created_at: new Date().toISOString(),
-        questions: mockQuestions
-      };
-      setMockExams(prev => [exam, ...prev]);
-      setActiveExam(exam);
-      setStudentAnswers({});
-      setExamTimer(15 * 60);
-      setExamTimerRunning(true);
+      toast(err instanceof Error ? err.message : "Couldn't generate a mock exam. Please try again.", "error");
     } finally {
       setGeneratingExam(false);
     }
@@ -1171,22 +942,7 @@ export default function SubjectPortal() {
       toast("Connections mapped.", "success");
     } catch (err) {
       console.error(err);
-      // Offline fallback mapping
-      if (materials.length > 0) {
-        const fallEdges = [];
-        for (let i = 0; i < materials.length - 1; i++) {
-          fallEdges.push({
-            id: 900 + i,
-            subject_id: subjectId,
-            source_material_id: materials[i].id,
-            target_material_id: materials[i+1].id,
-            connection_type: i === 0 ? "Prerequisite" : "Extension",
-            description: `Conceptual study flow tracking progression of topics from ${materials[i].name} into ${materials[i+1].name}.`
-          });
-        }
-        setKnowledgeMap({ nodes: materials, edges: fallEdges });
-      }
-      toast("Connections mapped.", "success");
+      toast(err instanceof Error ? err.message : "Couldn't map connections. Please try again.", "error");
     } finally {
       setCompilingMap(false);
     }
@@ -1511,24 +1267,12 @@ export default function SubjectPortal() {
         sender: c.role === 'user' ? 'student' : 'tutor',
         text: c.content
       })));
-    } catch {
-      // Simulated conversational mock responses
-      setTimeout(() => {
-        let answer = "";
-        if (tutorMode === 'simplified') {
-          answer = `**Simplified explanation:** Think of page tables like index pages in a library catalog. If you want page 50 of a massive textbook, the MMU checks the catalog (Page Table) to see exactly which shelf (Physical frame) holds your page. The TLB is like writing the 10 most popular books on a sticky note on your forehead so you don't keep searching the index cards!`;
-        } else if (tutorMode === 'analogies') {
-          answer = `**Analogy representation:** Let's compare this to mapping out a delivery route! If you are a courier driver, Virtual Addresses are customer names, and Main Memory physical address is their actual geographical block coordinates. The Page table acts as the dispatcher's ledger. A page fault is when a package is not on your delivery truck, so you must stop the truck and load it from the main hub warehouse (Hard disk!).`;
-        } else {
-          answer = `Based on virtual memory architecture: page sizing divides address memory blocks. Virtual pages map to physical frames. When a page table hit bypasses slow access, we refer to a Translation Lookaside Buffer hit. If translation fails, a page fault handler interrupts execution and loads the data from disk storage.`;
-        }
-        
-        setTutorMessages(prev => [...prev, { 
-          sender: 'tutor', 
-          text: answer, 
-          sources: [materials[0]?.name || "Lecture Notes"] 
-        }]);
-      }, 700);
+    } catch (err) {
+      console.error(err);
+      // Drop the optimistic student bubble we added above so it doesn't look like
+      // the question was asked successfully; surface the real error instead.
+      setTutorMessages(prev => prev.slice(0, -1));
+      toast(err instanceof Error ? err.message : "Couldn't reach the AI tutor. Please try again.", "error");
     } finally {
       setTutorLoading(false);
     }
@@ -1655,7 +1399,7 @@ export default function SubjectPortal() {
       toast(`Added ${newFlashcards.length} new cards.`, "success");
     } catch (err) {
       console.error(err);
-      toast("Couldn't generate more cards.", "error");
+      toast(err instanceof Error ? err.message : "Couldn't generate more cards.", "error");
     } finally {
       setIsGeneratingMoreFlashcards(false);
     }
@@ -1669,7 +1413,7 @@ export default function SubjectPortal() {
       toast(`Added ${newQuizzes.length} new questions.`, "success");
     } catch (err) {
       console.error(err);
-      toast("Couldn't generate more questions.", "error");
+      toast(err instanceof Error ? err.message : "Couldn't generate more questions.", "error");
     } finally {
       setIsGeneratingMoreQuizzes(false);
     }
@@ -1703,6 +1447,32 @@ export default function SubjectPortal() {
         });
       }
     }
+  }
+
+  if (!loading && loadError && !subject) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-white px-4">
+        <div className="flex flex-col items-center gap-4 max-w-md text-center">
+          <span className="text-3xl">⚠️</span>
+          <p className="text-sm font-bold text-white">Couldn't load this subject</p>
+          <p className="text-xs text-[#A29A8B]">{loadError}</p>
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={() => loadSubjectData()}
+              className="text-xs font-black px-4 py-2 rounded-lg bg-[#A7C4A0] text-[#141312] cursor-pointer"
+            >
+              Retry
+            </button>
+            <Link
+              href="/"
+              className="text-xs font-black px-4 py-2 rounded-lg bg-[#141312] border border-[#34302B] text-[#A29A8B] cursor-pointer"
+            >
+              Back to dashboard
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (loading || !subject) {
@@ -2250,12 +2020,8 @@ export default function SubjectPortal() {
                                     if (updatedNode) setSelectedNode(updatedNode);
                                     toast("Deeper research notes ready.", "success");
                                   } catch (err) {
-                                    toast("Research notes refreshed.", "success");
-                                    // simulated local fallback
-                                    setSelectedNode({
-                                      ...selectedNode,
-                                      deep_research_summary: `### 🚀 ADVANCED MECHANICAL ANALYSIS\n*   **Under-the-Hood Micro-Architecture:** Integrates TLB registers with virtual MMU bypass caches, implementing hierarchical page table loops directly inside the hardware logic gate levels.\n*   **⚠️ CRITICAL EXAM CALCULATIONS TRAP:** Students frequently double-count the TLB access latency when a TLB Miss occurs! Remember: when checking a TLB miss, we still pay the TLB cost *before* proceeding to memory page table accesses.\n*   **💻 INDUSTRY CASE STUDIES:** Used directly by Linux kernel v5.x systems, tracking active worker memory pages with virtual highmem allocations in 64-bit platforms.`
-                                    });
+                                    console.error(err);
+                                    toast(err instanceof Error ? err.message : "Couldn't compile deep research notes. Please try again.", "error");
                                   } finally {
                                     setCompilingMap(false);
                                   }

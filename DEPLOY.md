@@ -143,7 +143,8 @@ Re-connect with the same `ssh` command (needed for the docker group to apply), t
 git clone https://github.com/<you>/finals-buddy.git
 cd finals-buddy/backend
 cp .env.example .env
-nano .env        # paste GROQ_API_KEY etc.; Ctrl+O Enter to save, Ctrl+X to exit
+nano .env        # paste GROQ_API_KEY, ADMIN_EMAILS (your login email — enables
+                  # the /admin dashboard), etc.; Ctrl+O Enter to save, Ctrl+X to exit
 
 docker build -t finals-buddy-api .
 docker run -d --name finals-api --restart unless-stopped \
@@ -228,7 +229,26 @@ reach the backend until the API is behind https too. The free fix:
 
 ---
 
-## No LLM keys? Still fine
+## No Groq key? AI features return a clear error
 
-The backend degrades gracefully: Ollama Cloud → Groq → deterministic offline mode.
-For a live demo with a real LLM, a free Groq key (console.groq.com) is the easiest option.
+All AI generation (summaries, quizzes/flashcards, the AI tutor, mock exams, cheat
+sheets, the curriculum map) requires `GROQ_API_KEY`. Without it, those specific
+endpoints return a real `503` error with an explanatory message — they never
+fabricate fake output. Everything else (subjects, tasks, notes, auth, manual
+CRUD on flashcards/quizzes/formulas) works fine with no key at all.
+
+Get a free Groq key at console.groq.com and set `GROQ_API_KEY` in `.env` to enable
+AI features. `GROQ_API_KEY_2` is optional and used as an automatic fallback if the
+primary key hits a rate limit.
+
+---
+
+## Admin dashboard
+
+Set `ADMIN_EMAILS` in `.env` to your account's login email (comma-separated if
+you ever use more than one), then visit `https://<your-frontend>/admin` while
+signed in with that account. It shows global stats, a live tail of the app's
+log file (no `docker logs` / Docker-socket access needed), a config/health
+sanity check (Groq key set? DB reachable? disk space?), and a form to rotate
+the Groq key(s) without SSH-ing into the VM — saved keys are persisted to a
+file inside the data volume and take effect immediately, no restart required.

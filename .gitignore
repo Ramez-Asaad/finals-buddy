@@ -28,3 +28,5 @@ frontend/out/
 *.log
 backend/.auth_secret
 ssh-key-2026-07-10.key.pub
+.vscode/settings.json
+DEPLOY.md

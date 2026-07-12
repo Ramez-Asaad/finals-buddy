@@ -1,5 +1,15 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000/api";
 
+/** Thrown by admin API calls so the caller can branch on HTTP status (e.g.
+ *  403 -> "not authorized" screen) instead of just a generic error message. */
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 /* ---------------- Auth session ---------------- */
 
 const TOKEN_KEY = "fb_token";
@@ -309,7 +319,10 @@ export const api = {
       method: "POST",
       body: formData,
     });
-    if (!res.ok) throw new Error("Failed to query tutor");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to query tutor");
+    }
     return res.json();
   },
 
@@ -417,7 +430,10 @@ export const api = {
     const res = await authFetch(`${API_BASE}/subjects/${subjectId}/mock-exams`, {
       method: "POST"
     });
-    if (!res.ok) throw new Error("Failed to create mock exam");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to create mock exam");
+    }
     return res.json();
   },
 
@@ -427,7 +443,10 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ duration_seconds: durationSeconds, answers }),
     });
-    if (!res.ok) throw new Error("Failed to submit mock exam");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to submit mock exam");
+    }
     return res.json();
   },
 
@@ -490,7 +509,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`Failed to generate more ${type}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Failed to generate more ${type}`);
+    }
     return res.json();
   },
 
@@ -498,7 +520,10 @@ export const api = {
     const res = await authFetch(`${API_BASE}/subjects/${subjectId}/generate-map`, {
       method: "POST"
     });
-    if (!res.ok) throw new Error("Failed to generate curriculum map");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to generate curriculum map");
+    }
     return res.json();
   },
 
@@ -676,4 +701,78 @@ export interface KnowledgeMap {
   nodes: Material[];
   edges: ResourceConnection[];
 }
+
+/* ---------------- Admin dashboard ---------------- */
+
+export interface AdminOverview {
+  total_users: number;
+  total_subjects: number;
+  total_materials: number;
+  total_chat_messages: number;
+  total_mock_exams: number;
+  total_flashcards: number;
+  total_quizzes: number;
+  db_size_bytes: number;
+  uploads_size_bytes: number;
+  vector_store_doc_count: number;
+  vector_store_size_bytes: number;
+  uptime_seconds: number;
+}
+
+export interface AdminHealth {
+  ok: boolean;
+  checks: {
+    groq_api_key_set: boolean;
+    groq_api_key_2_set: boolean;
+    groq_client_initialized: boolean;
+    database_reachable: boolean;
+    disk_free_bytes: number | null;
+    disk_total_bytes: number | null;
+    cors_origins_configured: boolean;
+    admin_emails_configured: boolean;
+  };
+}
+
+export interface AdminConfig {
+  cors_origins: string[];
+  admin_emails: string[];
+  groq_api_key_masked: string;
+  groq_api_key_2_masked: string;
+  groq_api_key_set: boolean;
+  groq_api_key_2_set: boolean;
+}
+
+export interface AdminLogs {
+  lines: string[];
+  total_lines: number;
+}
+
+export interface AdminConfigUpdateResult {
+  message: string;
+  groq_api_key_masked: string;
+  groq_api_key_2_masked: string;
+  groq_client_initialized: boolean;
+}
+
+async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await authFetch(`${API_BASE}/admin${path}`, init);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, err.detail || `Admin request failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export const adminApi = {
+  getOverview: (): Promise<AdminOverview> => adminFetch("/overview"),
+  getHealth: (): Promise<AdminHealth> => adminFetch("/health"),
+  getConfig: (): Promise<AdminConfig> => adminFetch("/config"),
+  getLogs: (lines = 200): Promise<AdminLogs> => adminFetch(`/logs?lines=${lines}`),
+  updateConfig: (data: { groq_api_key?: string; groq_api_key_2?: string }): Promise<AdminConfigUpdateResult> =>
+    adminFetch("/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+};
 

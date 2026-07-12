@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import datetime
 import time
@@ -13,20 +14,101 @@ import pypdf
 import docx2txt
 from pptx import Presentation
 
+# ----------------- APPLICATION LOG CAPTURE -----------------
+# The app diagnoses itself almost entirely via print(). Rather than touching
+# every call site, tee stdout/stderr to a file inside the persisted data
+# volume (WORKDIR is /srv/finals-buddy/data at runtime — see Dockerfile) so
+# the admin dashboard can show "docker logs"-equivalent output without
+# mounting the Docker socket into the container (that would grant the
+# container root-equivalent host access). Installed before anything else
+# prints, so startup/migration diagnostics are captured too.
+_LOG_DIR = "logs"
+_LOG_FILE = os.path.join(_LOG_DIR, "app.log")
+_LOG_MAX_BYTES = 10 * 1024 * 1024  # trim once the file exceeds this...
+_LOG_TRIM_TO_BYTES = 5 * 1024 * 1024  # ...down to this many trailing bytes
+
+
+class _TeeStream:
+    """Mirrors writes to the original stream (so local `uvicorn` terminal
+    output / `docker logs` on the raw stdout stream still work) and to a
+    size-capped log file. Never raises — a logging failure must not break
+    the app."""
+
+    def __init__(self, original, log_path: str):
+        self._original = original
+        self._log_path = log_path
+
+    def write(self, data):
+        try:
+            self._original.write(data)
+        except Exception:
+            pass
+        if not data:
+            return
+        try:
+            self._trim_if_needed()
+            with open(self._log_path, "a", encoding="utf-8", errors="ignore") as f:
+                f.write(data)
+        except Exception:
+            pass
+
+    def flush(self):
+        try:
+            self._original.flush()
+        except Exception:
+            pass
+
+    def isatty(self):
+        try:
+            return self._original.isatty()
+        except Exception:
+            return False
+
+    def _trim_if_needed(self):
+        try:
+            if os.path.getsize(self._log_path) <= _LOG_MAX_BYTES:
+                return
+            with open(self._log_path, "rb") as f:
+                f.seek(-_LOG_TRIM_TO_BYTES, os.SEEK_END)
+                tail = f.read()
+            with open(self._log_path, "wb") as f:
+                f.write(tail)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
+
+
+def _install_log_tee():
+    try:
+        os.makedirs(_LOG_DIR, exist_ok=True)
+        sys.stdout = _TeeStream(sys.stdout, _LOG_FILE)
+        sys.stderr = _TeeStream(sys.stderr, _LOG_FILE)
+    except Exception as e:
+        # Fall back silently — logging must never prevent the app from starting.
+        try:
+            sys.__stderr__.write(f"Failed to install log file tee: {e}\n")
+        except Exception:
+            pass
+
+
+_install_log_tee()
+
 from .database import engine, Base, get_db, SessionLocal
 from . import models, schemas
 from .auth import hash_password, verify_password, create_token, get_current_user
+from . import admin
 from .services.agents import (
     summarizer_agent,
     planner_recommender_agent,
     quiz_agent,
-    tutor_agent,
     mock_exam_agent,
     formula_extractor_agent,
     deep_research_agent,
     curriculum_mapper_agent
 )
 from .services.vector_store import vector_store
+from .errors import AIServiceError
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -206,9 +288,22 @@ def seed_demo_data(db: Session, user_id: int):
 
 app = FastAPI(title="Finals Buddy API", description="AI-powered University Finals Study Assistant Backend")
 
+
+@app.exception_handler(AIServiceError)
+async def handle_ai_service_error(request, exc: AIServiceError):
+    """Every AI-generation failure (missing GROQ_API_KEY, Groq API error, unparsable
+    model output) surfaces here as a real 503 instead of silently returning fake data."""
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
 # Ensure uploads directory exists
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+# Owner-only admin dashboard: stats, log tail, config/health checks, Groq key
+# rotation. Every route inside is gated behind require_admin (ADMIN_EMAILS).
+app.include_router(admin.router)
 
 # Setup CORS for frontend
 # Local dev origins are always allowed; deployed frontend origins come from the
@@ -1178,7 +1273,7 @@ def tutor_chat(
     db.add(user_msg)
     db.commit()
     
-    # 2. Get AI tutor response via LangChain agent (local Ollama + tools + memory)
+    # 2. Get AI tutor response via LangChain agent (Groq tool-calling + memory)
     from .services.langchain_chat import run_langchain_chat
     response = run_langchain_chat(subject_id, query, mode, db)
     

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from .database import get_db
 from . import models
+from .config import ADMIN_EMAILS
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 PBKDF2_ITERATIONS = 260_000
@@ -115,4 +116,14 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="Account no longer exists")
+    return user
+
+
+def require_admin(user: models.User = Depends(get_current_user)) -> models.User:
+    """Gate for the owner-only admin dashboard: 403s unless the authenticated
+    user's email is in the ADMIN_EMAILS allowlist. This is a single-owner
+    personal project, not a multi-tenant SaaS — a plain email allowlist is
+    intentionally used instead of a roles/permissions system."""
+    if user.email.lower() not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Admin access required")
     return user
