@@ -5,7 +5,7 @@ import datetime
 import time
 import uuid
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
 import shutil
 from fastapi.middleware.cors import CORSMiddleware
@@ -1031,16 +1031,16 @@ def delete_note(note_id: int, db: Session = Depends(get_db), current_user: model
 # ----------------- UPLOADS -----------------
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...), current_user: models.User = Depends(get_current_user)):
+async def upload_file(request: Request, file: UploadFile = File(...), current_user: models.User = Depends(get_current_user)):
     # Generate unique filename to prevent overwrites
     ext = file.filename.split(".")[-1] if "." in file.filename else ""
     filename = f"{uuid.uuid4().hex}.{ext}"
     file_path = os.path.join("uploads", filename)
-    
+
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-        
-    return {"url": f"http://localhost:8000/uploads/{filename}"}
+
+    return {"url": f"{str(request.base_url).rstrip('/')}/uploads/{filename}"}
 
 # ----------------- REVISION & LEITNER FLASHCARDS -----------------
 

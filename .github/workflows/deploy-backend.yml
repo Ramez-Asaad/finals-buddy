@@ -1,0 +1,28 @@
+name: Deploy backend
+
+on:
+  push:
+    branches: [main]
+    paths: ["backend/**"]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and redeploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            cd ~/finals-buddy
+            git pull
+            cd backend
+            docker build -t finals-buddy-api .
+            docker rm -f finals-api
+            docker run -d --name finals-api --restart unless-stopped \
+              -p 8000:8000 \
+              -v finals_data:/srv/finals-buddy/data \
+              --env-file .env \
+              finals-buddy-api
