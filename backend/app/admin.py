@@ -9,7 +9,6 @@ import os
 import time
 import shutil
 
-import groq as groq_sdk
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -18,7 +17,7 @@ from sqlalchemy.orm import Session
 from . import models, config
 from .auth import require_admin
 from .database import get_db
-from .services import agents as agents_module
+from .key_context import groq_client_for
 from .services import langchain_chat as langchain_chat_module
 from .services.vector_store import vector_store, VECTOR_STORE_FILE
 
@@ -133,7 +132,12 @@ def get_health(db: Session = Depends(get_db), current_user: models.User = Depend
 
     checks["groq_api_key_set"] = bool(config.GROQ_API_KEY)
     checks["groq_api_key_2_set"] = bool(config.GROQ_API_KEY_2)
-    checks["groq_client_initialized"] = agents_module.groq_client is not None
+    # Groq clients are now built per-key on demand (key_context.groq_client_for),
+    # not held as a singleton — "initialized" means the server key can produce one.
+    try:
+        checks["groq_client_initialized"] = bool(config.GROQ_API_KEY) and groq_client_for(config.GROQ_API_KEY) is not None
+    except Exception:
+        checks["groq_client_initialized"] = False
 
     try:
         db.execute(text("SELECT 1"))
@@ -186,35 +190,30 @@ class UpdateConfigRequest(BaseModel):
 def update_config(payload: UpdateConfigRequest, current_user: models.User = Depends(require_admin)):
     """Persists the new key(s) to the runtime overrides file (survives a
     container restart) AND hot-reloads them into the running process — no
-    restart required. This works by patching the module-level `GROQ_API_KEY`
-    name and the `groq_client` singleton that agents.py / langchain_chat.py
-    read at call time, from the outside; it does not require any changes to
-    those two files themselves.
+    restart required.
+
+    The primary server key is now the single source of truth in `config`, read
+    dynamically on every call via key_context.get_current_key(), so
+    persist_groq_keys() alone applies it live. The only module-level snapshot
+    left is langchain_chat's GROQ_API_KEY_2 (the trial rate-limit fallback),
+    captured at import — so that one still needs patching here.
     """
     if payload.groq_api_key is None and payload.groq_api_key_2 is None:
         raise HTTPException(status_code=400, detail="Provide at least one of groq_api_key or groq_api_key_2")
 
     config.persist_groq_keys(payload.groq_api_key, payload.groq_api_key_2)
 
-    # Hot-reload path 1: agents.py's module-level `groq_client` singleton,
-    # used by every direct (non-tutor) AI agent call.
-    if config.GROQ_API_KEY:
-        try:
-            agents_module.groq_client = groq_sdk.Groq(api_key=config.GROQ_API_KEY)
-        except Exception:
-            agents_module.groq_client = None
-    else:
-        agents_module.groq_client = None
-    agents_module.GROQ_API_KEY = config.GROQ_API_KEY
-
-    # Hot-reload path 2: langchain_chat.py's module-level GROQ_API_KEY /
-    # GROQ_API_KEY_2 names, read fresh on every call in run_langchain_chat().
-    langchain_chat_module.GROQ_API_KEY = config.GROQ_API_KEY
+    # Hot-reload the trial fallback key that langchain_chat captured at import.
     langchain_chat_module.GROQ_API_KEY_2 = config.GROQ_API_KEY_2
+
+    try:
+        client_ok = bool(config.GROQ_API_KEY) and groq_client_for(config.GROQ_API_KEY) is not None
+    except Exception:
+        client_ok = False
 
     return {
         "message": "Groq key(s) saved and applied immediately — no restart needed.",
         "groq_api_key_masked": _mask_key(config.GROQ_API_KEY),
         "groq_api_key_2_masked": _mask_key(config.GROQ_API_KEY_2),
-        "groq_client_initialized": agents_module.groq_client is not None,
+        "groq_client_initialized": client_ok,
     }

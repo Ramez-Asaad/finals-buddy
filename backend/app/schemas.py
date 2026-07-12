@@ -328,6 +328,20 @@ class AuthResponse(BaseModel):
     token: str
     user: UserOut
 
+# ---------- Account / BYOK (bring-your-own-key) ----------
+
+class AccountOut(BaseModel):
+    email: str
+    name: str
+    has_personal_key: bool          # True once the user saved their own Groq key
+    key_hint: Optional[str] = None  # masked hint, e.g. "gsk_…4f9a" (never the full key)
+    trial_used: int                 # AI actions consumed against the free trial
+    trial_limit: int                # total free actions before a key is required
+    on_trial: bool                  # True while still using the server's key
+
+class GroqKeyUpdate(BaseModel):
+    api_key: str
+
 # ---------- New CRUD ----------
 
 class QuizUpdate(BaseModel):

@@ -12,6 +12,13 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+    # BYOK (bring-your-own-key): a user's personal Groq API key, Fernet-encrypted
+    # at rest (see key_context.py). NULL = still on the free trial, using the
+    # server's key. `trial_requests_used` counts AI-generation actions consumed
+    # against the free-trial allowance; ignored once a personal key is set.
+    groq_api_key_encrypted = Column(Text, nullable=True)
+    trial_requests_used = Column(Integer, default=0, nullable=False)
+
     subjects = relationship("Subject", back_populates="user", cascade="all, delete-orphan")
 
 class Subject(Base):

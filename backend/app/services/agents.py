@@ -1,8 +1,7 @@
 import json
 import re
 from typing import List, Dict, Any
-import groq
-from ..config import GROQ_API_KEY
+from ..key_context import get_current_key, groq_client_for
 from ..errors import AIServiceError
 
 
@@ -13,14 +12,6 @@ def safe_parse_json(response: str) -> Any:
     text = re.sub(r'^```[a-zA-Z]*\s*', '', text)
     text = re.sub(r'\s*```$', '', text.rstrip())
     return json.loads(text.strip())
-
-# Initialize Groq client if key is present
-groq_client = None
-if GROQ_API_KEY:
-    try:
-        groq_client = groq.Groq(api_key=GROQ_API_KEY)
-    except Exception as e:
-        print(f"Error initializing Groq client: {e}")
 
 def run_llm(system_prompt: str, user_prompt: str, response_format: str = "text") -> str:
     """Query Groq for a chat completion. Raises AIServiceError on any failure
@@ -47,8 +38,12 @@ def run_llm(system_prompt: str, user_prompt: str, response_format: str = "text")
     except Exception as e:
         print(f"Headroom compression failed: {e}. Using uncompressed prompt.")
 
-    if not groq_client:
-        raise AIServiceError("AI features are unavailable: no GROQ_API_KEY is configured on the server.")
+    # Resolve the key for THIS request: the user's own key, or the server key
+    # during their free trial (set by key_context.ai_action on the endpoint).
+    key = get_current_key()
+    if not key:
+        raise AIServiceError("AI features are unavailable: no Groq API key is configured.")
+    groq_client = groq_client_for(key)
 
     try:
         # Standard versatile Groq reasoning model

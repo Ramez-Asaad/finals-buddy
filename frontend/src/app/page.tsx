@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { api, getToken, getStoredUser, SubjectDashboard, Recommendation } from "../lib/api";
 import { toast } from "../components/Toast";
+import AccountSettings from "../components/AccountSettings";
 import { useRouter } from "next/navigation";
 
 // Days between today and an ISO exam date. null when no date set.
@@ -300,6 +301,7 @@ export default function Home() {
           >
             <Plus className="w-4 h-4" /> Add Subject
           </button>
+          <AccountSettings />
           <div className="flex items-center gap-2 border border-[#34302B] rounded-lg px-3 py-2">
             <span className="text-sm text-[#A29A8B] max-w-[140px] truncate">
               {userName}

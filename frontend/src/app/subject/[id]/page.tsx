@@ -31,6 +31,7 @@ import {
   Plus
 } from "lucide-react";
 import { api, API_BASE, getToken, SubjectDashboard, Material, Task, Flashcard, Quiz, MockExam, Formula, Note } from "../../../lib/api";
+import AccountSettings from "../../../components/AccountSettings";
 import NotionEditor from "../../../components/NotionEditor";
 import { toast } from "../../../components/Toast";
 
@@ -1522,14 +1523,17 @@ export default function SubjectPortal() {
           <ArrowLeft className="w-4 h-4" /> All subjects
         </Link>
 
-        {activeTab !== 'focus' && (
-          <button
-            onClick={() => setActiveTab('focus')}
-            className="flex items-center gap-1.5 bg-[#A7C4A0]/10 border border-[#A7C4A0]/30 text-[#A7C4A0] px-3.5 py-1.5 rounded-lg text-xs font-black transition-all hover:bg-[#A7C4A0] hover:text-[#141312] cursor-pointer"
-          >
-            <Zap className="w-3.5 h-3.5" /> Focus mode
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {activeTab !== 'focus' && (
+            <button
+              onClick={() => setActiveTab('focus')}
+              className="flex items-center gap-1.5 bg-[#A7C4A0]/10 border border-[#A7C4A0]/30 text-[#A7C4A0] px-3.5 py-1.5 rounded-lg text-xs font-black transition-all hover:bg-[#A7C4A0] hover:text-[#141312] cursor-pointer"
+            >
+              <Zap className="w-3.5 h-3.5" /> Focus mode
+            </button>
+          )}
+          <AccountSettings />
+        </div>
       </div>
 
       {activeTab !== 'focus' ? (

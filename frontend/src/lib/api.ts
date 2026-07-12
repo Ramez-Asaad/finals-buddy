@@ -59,6 +59,11 @@ async function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       window.location.href = "/login";
     }
   }
+  // 402 = free trial used up. Broadcast so the Account Settings modal can open
+  // itself and prompt for a personal Groq key, wherever the call came from.
+  if (res.status === 402 && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("fb:trial-exhausted"));
+  }
   return res;
 }
 
@@ -564,6 +569,33 @@ export const api = {
     window.location.href = "/login";
   },
 
+  /* ---------------- Account / BYOK ---------------- */
+
+  async getAccount(): Promise<Account> {
+    const res = await authFetch(`${API_BASE}/account`);
+    if (!res.ok) throw new Error("Failed to load account");
+    return res.json();
+  },
+
+  async saveGroqKey(apiKey: string): Promise<Account> {
+    const res = await authFetch(`${API_BASE}/account/groq-key`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to save API key");
+    }
+    return res.json();
+  },
+
+  async deleteGroqKey(): Promise<Account> {
+    const res = await authFetch(`${API_BASE}/account/groq-key`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to remove API key");
+    return res.json();
+  },
+
   /* ---------------- Task CRUD (planner) ---------------- */
 
   async patchTask(taskId: number, data: Partial<Pick<Task, "title" | "description" | "duration_minutes" | "due_date" | "status">>): Promise<Task> {
@@ -700,6 +732,16 @@ export interface ResourceConnection {
 export interface KnowledgeMap {
   nodes: Material[];
   edges: ResourceConnection[];
+}
+
+export interface Account {
+  email: string;
+  name: string;
+  has_personal_key: boolean;
+  key_hint: string | null;
+  trial_used: number;
+  trial_limit: number;
+  on_trial: boolean;
 }
 
 /* ---------------- Admin dashboard ---------------- */

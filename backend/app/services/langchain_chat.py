@@ -16,7 +16,8 @@ from langchain_core.tools import tool
 from headroom import compress as headroom_compress
 
 from .vector_store import vector_store
-from ..config import GROQ_API_KEY, GROQ_API_KEY_2
+from ..config import GROQ_API_KEY_2
+from ..key_context import get_current_key, is_server_key
 from ..errors import AIServiceError
 
 
@@ -241,7 +242,9 @@ def run_langchain_chat(
         base_messages = list(messages)
 
         # Track the active key + temperature so we can rebuild the model on retry.
-        current_key = GROQ_API_KEY
+        # The key is the user's own (BYOK) or the server's during their trial —
+        # set per-request by key_context.ai_action() on the /api/tutor/chat route.
+        current_key = get_current_key()
         tool_temp = 0.0
         current_llm = make_groq_llm(current_key, tool_temp)
         search_count = 0
@@ -260,13 +263,15 @@ def run_langchain_chat(
                     err_str = str(e).lower()
 
                     if "rate limit" in err_str or "429" in err_str:
-                        if current_key != GROQ_API_KEY_2 and GROQ_API_KEY_2:
+                        # Fall back to the server's second key ONLY in trial mode.
+                        # A user on their own key must never spill onto ours.
+                        if is_server_key(current_key) and GROQ_API_KEY_2 and current_key != GROQ_API_KEY_2:
                             print("⚠️ Groq primary key hit rate limit. Switching to fallback key (GROQ_API_KEY_2).")
                             current_key = GROQ_API_KEY_2
                             current_llm = make_groq_llm(current_key, tool_temp)
                             continue  # Retry with new key
                         else:
-                            raise e  # Both keys exhausted
+                            raise e  # Key exhausted (personal key, or both server keys)
 
                     elif ("tool_use_failed" in err_str or "failed to call a function" in err_str
                           or "tool call validation" in err_str or "400" in err_str):

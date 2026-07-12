@@ -1,4 +1,4 @@
-# 🎓 Finals Buddy
+# Finals Buddy
 
 **An AI-powered study companion that turns your lecture slides, PDFs, and notes into an adaptive finals-prep workspace: flashcards, quizzes, mock exams, a RAG tutor, and a smart study planner, all generated from your own course material.**
 
@@ -39,6 +39,11 @@ Upload your course material and Finals Buddy does the rest, parsing the document
 | **Recommendation engine** | Surfaces the single highest-ROI thing to do next via a weighted priority score (see below). |
 | **Focus mode** | Distraction-free full-screen canvas with a built-in Pomodoro timer. |
 | **Auth + admin** | JWT authentication and a lightweight admin dashboard (usage stats, logs, health checks, live API-key rotation). |
+| **Free trial + BYOK** | Every visitor gets a handful of free AI generations, then brings their own (free) Groq API key for unlimited use — so hosting costs stay flat no matter how many people try it. |
+
+### Free trial & bring-your-own-key
+
+Finals Buddy is a hosted demo, so AI usage is metered. New accounts get **5 free AI actions** on the shared key; after that, a prompt in **Account settings** asks for a personal [Groq API key](https://console.groq.com/keys) (free to create). Once added, all AI requests run on the user's own account with no cap. Personal keys are **encrypted at rest**, validated before saving, and never displayed in full again.
 
 ### The recommendation score
 
@@ -55,9 +60,14 @@ So the thing you're least confident about, on the subject with the nearest exam,
 ## 🖼️ Screenshots
 
 
-| Dashboard | Subject portal | RAG tutor | Tasks Planner |
-|---|---|---|---|
-| ![Dashboard](docs/dashboard.png) | ![Subject](docs/graph.png) | ![Tutor](docs/rag_agent.png) | ![Planner](docs/planner.png) |
+#### Dashboards
+![Dashboard](docs/dashboard.png)
+#### Subject Portal
+![Subject](docs/graph.png)
+#### RAG Tutorr Agent
+![Tutor](docs/rag_agent.png)
+#### Tasks Planner
+![Planner](docs/planner.png)
 
 ---
 
@@ -77,7 +87,7 @@ So the thing you're least confident about, on the subject with the nearest exam,
 - **JWT** auth
 
 **Infrastructure**
-- **Docker** on an Oracle Cloud Always-Free **ARM** VM, with **Caddy** for automatic HTTPS
+- **Docker** on an Oracle Cloud **ARM** VM, with **Caddy** for automatic HTTPS
 - **Frontend on Vercel**
 - **GitHub Actions CI/CD**: every push to `master` that touches the backend auto-rebuilds and redeploys the container over SSH, no manual steps
 
@@ -150,13 +160,13 @@ finals-buddy/
 
 ## ☁️ Deployment
 
-Live at **[finals-buddy.vercel.app](https://finals-buddy.vercel.app)**. The whole stack runs on free tiers: an Oracle Cloud Always-Free ARM VM for the backend (Docker + Caddy + persistent volume), Vercel for the frontend, and a GitHub Actions workflow that auto-redeploys the backend on every push.
+Live at **[finals-buddy.vercel.app](https://finals-buddy.vercel.app)**. The whole stack runs on an Oracle Cloud ARM VM for the backend (Docker + Caddy + persistent volume), Vercel for the frontend, and a GitHub Actions workflow that auto-redeploys the backend on every push.
 
 ---
 
-## 📜 License
+## License
 
-Released under the MIT License. _(Add a `LICENSE` file if you'd like it to render on the GitHub sidebar.)_
+Released under the MIT License.
 
 ---
 

@@ -4,6 +4,7 @@ import json
 import datetime
 import time
 import uuid
+import contextlib
 from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Query, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
@@ -109,6 +110,15 @@ from .services.agents import (
 )
 from .services.vector_store import vector_store
 from .errors import AIServiceError
+from .key_context import (
+    ai_action,
+    resolve_key_and_gate,
+    encrypt_key,
+    mask_key,
+    personal_key_for,
+    validate_groq_key,
+    FREE_TRIAL_LIMIT,
+)
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -154,6 +164,21 @@ try:
         conn.execute(text("ALTER TABLE subjects ADD COLUMN user_id INTEGER"))
 except Exception as e:
     print(f"Migration note (user_id already exists): {e}")
+
+# Auto-migration: BYOK — personal Groq key + free-trial counter on users
+try:
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN groq_api_key_encrypted TEXT"))
+except Exception as e:
+    print(f"Migration note (groq_api_key_encrypted already exists): {e}")
+
+try:
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN trial_requests_used INTEGER NOT NULL DEFAULT 0"))
+except Exception as e:
+    print(f"Migration note (trial_requests_used already exists): {e}")
 
 # Per-user demo seeding: every new account starts with two sample subjects so
 # the app is explorable immediately. Called from /api/auth/signup.
@@ -370,6 +395,46 @@ def login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
 def get_me(current_user: models.User = Depends(get_current_user)):
     return current_user
 
+# ----------------- ACCOUNT / BYOK -----------------
+
+def _account_out(user: models.User) -> schemas.AccountOut:
+    personal = personal_key_for(user)
+    return schemas.AccountOut(
+        email=user.email,
+        name=user.name,
+        has_personal_key=personal is not None,
+        key_hint=mask_key(personal) if personal else None,
+        trial_used=min(user.trial_requests_used or 0, FREE_TRIAL_LIMIT),
+        trial_limit=FREE_TRIAL_LIMIT,
+        on_trial=personal is None,
+    )
+
+@app.get("/api/account", response_model=schemas.AccountOut)
+def get_account(current_user: models.User = Depends(get_current_user)):
+    return _account_out(current_user)
+
+@app.put("/api/account/groq-key", response_model=schemas.AccountOut)
+def set_groq_key(payload: schemas.GroqKeyUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    key = payload.api_key.strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="API key cannot be empty")
+    # Verify the key actually works before storing it, so a typo can't silently
+    # brick the user's AI features later.
+    if not validate_groq_key(key):
+        raise HTTPException(status_code=400, detail="That Groq API key was rejected. Double-check it at console.groq.com/keys.")
+    current_user.groq_api_key_encrypted = encrypt_key(key)
+    db.commit()
+    db.refresh(current_user)
+    return _account_out(current_user)
+
+@app.delete("/api/account/groq-key", response_model=schemas.AccountOut)
+def clear_groq_key(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    """Remove the personal key and fall back to the (possibly used-up) free trial."""
+    current_user.groq_api_key_encrypted = None
+    db.commit()
+    db.refresh(current_user)
+    return _account_out(current_user)
+
 # ----------------- OWNERSHIP HELPERS -----------------
 
 def own_subject(db: Session, user: models.User, subject_id: int) -> models.Subject:
@@ -532,12 +597,20 @@ def process_ingestion_background(
     filename: str,
     file_ext: str,
     file_path: str,
-    text_content: str
+    text_content: str,
+    groq_key: str = None,
+    user_id: int = None,
+    is_trial: bool = False
 ):
     tracker = IngestionProgressTracker(job_id)
     db = SessionLocal()
     t_start = time.time()
+    # Bind the caller's resolved Groq key for this background thread (the request
+    # contextvar doesn't carry over here). All agent calls below run under it.
+    from .key_context import set_request_key, increment_trial
+    key_ctx = set_request_key(groq_key) if groq_key else contextlib.nullcontext()
     try:
+      with key_ctx:
         # Step 3: Chunk & Index
         tracker.update(3, "Chunking & indexing for RAG search...", "🗂️")
         t2 = time.time()
@@ -641,7 +714,13 @@ def process_ingestion_background(
         print(f"🎉  [INGESTION COMPLETE] '{filename}' processed in {total:.1f}s")
         print(f"     Summary: {len(analysis.get('summary',''))} chars | Flashcards: {flashcard_count} | Quizzes: {quiz_count}")
         print(f"{'='*60}\n")
-        
+
+        # Ingestion fully succeeded — consume one free-trial action (no-op for
+        # users on their own key). Counted here, not at request time, so a
+        # failed background digestion never burns the visitor's trial.
+        if is_trial and user_id is not None:
+            increment_trial(db, user_id)
+
         # Mark complete!
         tracker.update(7, "Complete! Loading your new study materials...", "🎉", status="completed", data={
             "summary_ready": True,
@@ -667,6 +746,12 @@ async def upload_material(
     t_start = time.time()
 
     subject = own_subject(db, current_user, subject_id)
+
+    # Resolve the Groq key + enforce the free-trial cap up front (402 if used
+    # up), before we spend effort parsing the file. The AI ingestion runs in a
+    # background thread that can't see the request contextvar, so the key is
+    # passed through explicitly and the trial is counted there on success.
+    groq_key, is_trial = resolve_key_and_gate(current_user)
 
     filename = file.filename
     file_ext = filename.split(".")[-1].lower()
@@ -751,7 +836,10 @@ async def upload_material(
         filename=filename,
         file_ext=file_ext,
         file_path=file_path,
-        text_content=text_content
+        text_content=text_content,
+        groq_key=groq_key,
+        user_id=current_user.id,
+        is_trial=is_trial
     )
     
     # Inject job_id in dynamic attribute so it matches schemas.MaterialOut
@@ -816,8 +904,9 @@ def generate_knowledge_map(subject_id: int, db: Session = Depends(get_db), curre
             "summary": m.summary or ""
         })
         
-    # 3. Trigger CurriculumMapperAgent
-    map_result = curriculum_mapper_agent.generate_material_map(materials_info)
+    # 3. Trigger CurriculumMapperAgent (free-trial gated / BYOK)
+    with ai_action(current_user, db):
+        map_result = curriculum_mapper_agent.generate_material_map(materials_info)
     
     # 4. Prune existing connections for this subject
     db.query(models.ResourceConnection).filter(models.ResourceConnection.subject_id == subject_id).delete()
@@ -1141,12 +1230,13 @@ def generate_more_active_recall(subject_id: int, request: schemas.GenerateMoreRe
         existing_quizzes = db.query(models.Quiz).filter(models.Quiz.subject_id == subject_id).all()
         existing_questions = [q.question for q in existing_quizzes]
 
-    generated_data = quiz_agent.generate_more_items(
-        context_summary=combined_summary,
-        existing_questions=existing_questions,
-        item_type=request.item_type,
-        count=request.count or 3
-    )
+    with ai_action(current_user, db):
+        generated_data = quiz_agent.generate_more_items(
+            context_summary=combined_summary,
+            existing_questions=existing_questions,
+            item_type=request.item_type,
+            count=request.count or 3
+        )
 
     new_items = []
     mat_id_to_use = request.material_id if request.material_id else (materials[-1].id if materials else None)
@@ -1263,7 +1353,10 @@ def tutor_chat(
     current_user: models.User = Depends(get_current_user)
 ):
     subject = own_subject(db, current_user, subject_id)
-        
+
+    # Fail fast on an exhausted free trial before persisting the user's message.
+    resolve_key_and_gate(current_user)
+
     # 1. Save user message
     user_msg = models.ChatMessage(
         subject_id=subject_id,
@@ -1275,7 +1368,8 @@ def tutor_chat(
     
     # 2. Get AI tutor response via LangChain agent (Groq tool-calling + memory)
     from .services.langchain_chat import run_langchain_chat
-    response = run_langchain_chat(subject_id, query, mode, db)
+    with ai_action(current_user, db):
+        response = run_langchain_chat(subject_id, query, mode, db)
     
     # 3. Save assistant response with sources inline
     ans_content = response.get("answer", "")
@@ -1433,8 +1527,9 @@ def generate_subject_mock_exam(subject_id: int, db: Session = Depends(get_db), c
     materials = db.query(models.Material).filter(models.Material.subject_id == subject_id).all()
     texts = [m.summary for m in materials if m.summary]
 
-    # Generate questions
-    generated = mock_exam_agent.generate_mock_exam(subject.name, texts)
+    # Generate questions (free-trial gated / BYOK)
+    with ai_action(current_user, db):
+        generated = mock_exam_agent.generate_mock_exam(subject.name, texts)
     questions_list = generated.get("questions", [])
 
     # Create exam in DB
@@ -1488,7 +1583,8 @@ def submit_mock_exam(exam_id: int, req: schemas.MockExamSubmitRequest, db: Sessi
         })
         user_answers_payload.append(ans)
 
-    graded = mock_exam_agent.grade_mock_exam(questions_payload, user_answers_payload, texts)
+    with ai_action(current_user, db):
+        graded = mock_exam_agent.grade_mock_exam(questions_payload, user_answers_payload, texts)
     overall_score = graded.get("overall_score", 0.0)
 
     # Save to questions
@@ -1540,7 +1636,8 @@ def generate_cheat_sheet(subject_id: int, req: schemas.GenerateCheatSheetRequest
     if not texts:
         raise HTTPException(status_code=400, detail="Selected materials have no processed content yet — wait for ingestion to finish.")
 
-    extracted = formula_extractor_agent.extract_formulas(subject.name, texts)
+    with ai_action(current_user, db):
+        extracted = formula_extractor_agent.extract_formulas(subject.name, texts)
     formulas_list = extracted.get("formulas", [])
     if not formulas_list:
         raise HTTPException(status_code=502, detail="The AI couldn't extract formulas from the selected materials. Try different resources.")
