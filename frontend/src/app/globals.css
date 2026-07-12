@@ -29,6 +29,14 @@
   --radius: 10px;
 }
 
+/* Always reserve space for the vertical scrollbar so the centered page
+   column keeps a constant width whether a tab's content scrolls or not.
+   Without this, short tabs (no scrollbar) render wider than tall tabs,
+   making the header and content appear to shift between tabs. */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background-color: var(--ink-900);
   color: var(--paper);

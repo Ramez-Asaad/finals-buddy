@@ -4,19 +4,15 @@ import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { 
-  ArrowLeft, 
-  UploadCloud, 
-  FileText, 
-  Brain, 
-  CalendarDays, 
-  Clock, 
-  Sparkles, 
+  ArrowLeft,
+  UploadCloud,
+  FileText,
+  Brain,
+  CalendarDays,
+  Clock,
   Send,
-  BookOpen,
   HelpCircle,
   CheckCircle2,
-  ListTodo,
-  TrendingUp,
   Volume2,
   VolumeX,
   Play,
@@ -3298,7 +3294,7 @@ export default function SubjectPortal() {
                 </div>
               ) : activeExam.status === 'in_progress' ? (
                 // TIMED EXAM WORKSPACE
-                <div className="flex flex-col gap-6 max-w-4xl mx-auto">
+                <div className="flex flex-col gap-6">
                   <div className="bg-[#262320] border border-orange-500/30 rounded-2xl p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative overflow-hidden">
                     <div>
                       <span className="text-[10px] bg-orange-500/20 border border-orange-500/30 text-orange-400 px-3 py-1 rounded-full font-black uppercase tracking-wider">
@@ -3365,7 +3361,7 @@ export default function SubjectPortal() {
                 </div>
               ) : (
                 // GRADED PERFORMANCE REPORT CARD
-                <div className="flex flex-col gap-6 max-w-4xl mx-auto">
+                <div className="flex flex-col gap-6">
                   <div className="flex justify-between items-center">
                     <button
                       onClick={() => setActiveExam(null)}
@@ -3437,7 +3433,7 @@ export default function SubjectPortal() {
 
                         {/* AI COACH FEEDBACK */}
                         <div className="bg-[#A7C4A0]/5 border border-[#A7C4A0]/20 rounded-xl p-4">
-                          <span className="text-[9px] text-[#A7C4A0] uppercase font-black tracking-widest block mb-1 flex items-center gap-1">
+                          <span className="text-[9px] text-[#A7C4A0] uppercase font-black tracking-widest mb-1 flex items-center gap-1">
                             AI feedback & coaching recommendations:
                           </span>
                           <div className="text-xs text-[#CBDDC4] leading-relaxed mt-1.5">
