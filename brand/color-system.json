@@ -1,0 +1,26 @@
+{
+  "name": "Finals Buddy",
+  "primary": "#A7C4A0",
+  "secondary": "#34302B",
+  "accent": "#D28C97",
+  "neutrals": ["#141312", "#6E685C", "#ECE6DA", "#FFFFFF"],
+  "roles": {
+    "background": "#ECE6DA",
+    "surface": "#FFFFFF",
+    "text": "#34302B",
+    "accent": "#D28C97"
+  },
+  "minContrast": 4.5,
+  "rules": {
+    "do": [
+      "Use sage (#A7C4A0) as the signature brand color on calm surfaces and marks",
+      "Set text in warm-brown (#34302B) on cream (#ECE6DA) for body copy",
+      "Reserve dusty-rose (#D28C97) for a single call to action per view"
+    ],
+    "dont": [
+      "Set text in sage or rose below the 4.5 minContrast ratio",
+      "Recolor, rotate, or stretch the logo",
+      "Mix cool grays into the warm neutral ramp"
+    ]
+  }
+}

@@ -1,0 +1,590 @@
+\documentclass[11pt,a4paper]{article}
+
+% ─── Encoding & fonts ────────────────────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% ─── Layout ──────────────────────────────────────────────────────────────────
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage[table]{xcolor}
+\usepackage{listings}
+\usepackage[most]{tcolorbox}
+
+% ─── Brand palette (Finals Buddy) ────────────────────────────────────────────
+\definecolor{fbSage}{HTML}{A7C4A0}
+\definecolor{fbBrown}{HTML}{34302B}
+\definecolor{fbRose}{HTML}{D28C97}
+\definecolor{fbCream}{HTML}{ECE6DA}
+\definecolor{fbInk}{HTML}{141312}
+\definecolor{fbMute}{HTML}{6E685C}
+
+% ─── Hyperlinks ──────────────────────────────────────────────────────────────
+\usepackage[colorlinks=true]{hyperref}
+\hypersetup{
+  linkcolor=fbBrown,
+  urlcolor=fbRose,
+  citecolor=fbSage,
+  pdftitle={Finals Buddy — Technical Documentation},
+  pdfauthor={Finals Buddy}
+}
+
+% ─── Section styling ─────────────────────────────────────────────────────────
+\titleformat{\section}
+  {\color{fbBrown}\Large\bfseries}{\color{fbSage}\thesection}{0.7em}{}
+\titleformat{\subsection}
+  {\color{fbBrown}\large\bfseries}{\color{fbSage}\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{1.6em}{0.6em}
+
+% ─── Code / verbatim style ───────────────────────────────────────────────────
+\lstdefinestyle{fb}{
+  basicstyle=\ttfamily\small\color{fbInk},
+  backgroundcolor=\color{fbCream},
+  frame=single,
+  framerule=0pt,
+  rulecolor=\color{fbCream},
+  xleftmargin=0.6em,
+  xrightmargin=0.6em,
+  aboveskip=1em,
+  belowskip=1em,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false
+}
+\lstset{style=fb}
+
+% Inline code helper
+\newcommand{\code}[1]{\colorbox{fbCream}{\texttt{\small #1}}}
+
+% ─── Table helper: sage header row ───────────────────────────────────────────
+\newcommand{\hdr}[1]{\textcolor{white}{\bfseries #1}}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+
+% ─── Header / footer ─────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{fbSage}\leaders\hrule height 0.8pt\hfill}}
+\fancyhead[L]{\small\color{fbMute}Finals Buddy}
+\fancyhead[R]{\small\color{fbMute}Technical Documentation}
+\fancyfoot[C]{\small\color{fbMute}\thepage}
+
+\setlength{\arrayrulewidth}{0.3pt}
+\arrayrulecolor{fbMute}
+
+\begin{document}
+
+% ─── Title page ──────────────────────────────────────────────────────────────
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+\includegraphics[width=0.6\textwidth]{logo.png}\\[2cm]
+{\color{fbBrown}\Huge\bfseries Technical Documentation}\\[0.5cm]
+{\color{fbMute}\large An AI-powered adaptive finals-prep workspace}\\[1.5cm]
+{\color{fbSage}\rule{0.5\textwidth}{2pt}}\\[1.5cm]
+{\color{fbMute}\large Architecture \textbullet\ Data Model \textbullet\ API \textbullet\ AI Agents}\\[3cm]
+{\color{fbMute} Developer / architecture reference}\\
+\vfill
+\end{titlepage}
+
+\tableofcontents
+\thispagestyle{fancy}
+\clearpage
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Overview}
+
+Finals Buddy is an AI study companion. A user uploads course material (PDF, DOCX,
+PPTX, TXT); the backend parses it, indexes it for retrieval, and runs a chain of
+LLM agents to produce a summary, flashcards, quizzes, mock exams, formula sheets,
+and a knowledge map --- all grounded in the user's own material. A RAG tutor lets
+the user chat with their material, and a recommendation engine ranks what to study
+next.
+
+For the product pitch, feature list, and screenshots, see the root
+\code{README.md}. This document covers how the system is built.
+
+\textbf{Two-service architecture:}
+
+\begin{lstlisting}
++-------------------------+       HTTPS / JSON        +--------------------------+
+|  Frontend (Next.js 16)  |  --------------------->   |  Backend (FastAPI)       |
+|  React 19, TypeScript   |  <---------------------   |  Python 3.12             |
+|  Vercel                 |     Bearer token auth     |  Docker on Oracle Cloud  |
++-------------------------+                           +------------+-------------+
+                                                                   |
+          +---------------------+---------------------+------------+---------+
+          |                     |                     |                      |
+      SQLite DB          vector_store.json       Groq LLM API           uploads/
+   (SQLAlchemy ORM)    (local TF-IDF RAG)     (llama-3.3-70b)        (raw files)
+\end{lstlisting}
+
+The backend is deliberately self-contained: SQLite for relational data, a
+file-backed TF-IDF vector store for RAG (no external vector DB), and Groq as the
+only external AI dependency. Everything that must survive a redeploy lives in one
+mountable data volume.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Tech stack}
+
+\begin{tabularx}{\textwidth}{>{\bfseries}l L}
+\toprule
+\rowcolor{fbBrown}\hdr{Layer} & \hdr{Technology} \\
+\midrule
+Frontend        & Next.js 16, React 19, TypeScript 5, Tailwind CSS 4 \\
+Rich editor     & TipTap 3 (+ math extension, KaTeX) \\
+Icons           & lucide-react \\
+Backend         & FastAPI, Uvicorn, Python 3.12 \\
+ORM / DB        & SQLAlchemy 2, SQLite \\
+LLM             & Groq \code{llama-3.3-70b-versatile} (groq SDK + LangChain) \\
+Agent loop      & LangChain / langchain-groq \\
+RAG retrieval   & Custom local TF-IDF cosine store (\code{vector\_store.py}) \\
+Compression     & Headroom (local ONNX text compressor) \\
+Doc parsing     & pypdf, docx2txt, python-pptx \\
+Crypto          & \code{cryptography} (Fernet) for BYOK key encryption \\
+Deploy          & Docker $\rightarrow$ Oracle Cloud (Ampere ARM64); frontend on Vercel \\
+\bottomrule
+\end{tabularx}
+
+\begin{tcolorbox}[colback=fbCream,colframe=fbSage,boxrule=1pt,arc=2pt,left=8pt,right=8pt,top=6pt,bottom=6pt]
+\textbf{Note on Next.js.} \code{frontend/AGENTS.md} warns this is a newer Next.js
+with breaking changes vs.\ older conventions --- consult
+\code{node\_modules/next/dist/docs/} before writing frontend code.
+\end{tcolorbox}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Repository layout}
+
+\begin{lstlisting}
+finals-buddy/
+|-- backend/
+|   |-- app/
+|   |   |-- main.py          # FastAPI app + all HTTP endpoints (~1700 lines)
+|   |   |-- models.py        # SQLAlchemy ORM models (the data model)
+|   |   |-- schemas.py       # Pydantic request/response schemas
+|   |   |-- database.py      # engine, SessionLocal, get_db dependency
+|   |   |-- config.py        # env config + runtime Groq-key overrides
+|   |   |-- auth.py          # PBKDF2 hashing + HMAC bearer tokens
+|   |   |-- key_context.py   # BYOK + free-trial gating (contextvar routing)
+|   |   |-- admin.py         # /api/admin/* router
+|   |   |-- errors.py        # AIServiceError
+|   |   `-- services/
+|   |       |-- agents.py         # LLM agents (summarize, quiz, exam, ...)
+|   |       |-- langchain_chat.py # RAG tutor (Groq tool-calling loop)
+|   |       `-- vector_store.py   # local TF-IDF vector store
+|   |-- Dockerfile
+|   `-- requirements.txt
+|-- frontend/
+|   `-- src/
+|       |-- app/
+|       |   |-- page.tsx              # home / subject list
+|       |   |-- login/page.tsx
+|       |   |-- admin/page.tsx
+|       |   `-- subject/[id]/page.tsx # main study workspace (~3800 lines)
+|       |-- components/               # AccountSettings, NotionEditor, Toast
+|       `-- lib/api.ts                # typed API client + session handling
+|-- docs/                             # screenshots + this document
+`-- README.md
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Data model}
+
+All tables are defined in \code{backend/app/models.py}. \code{User} owns
+\code{Subject}s; almost everything else hangs off \code{Subject} with
+\code{ON DELETE CASCADE}.
+
+\begin{lstlisting}
+User --< Subject --< Material --< Quiz
+                 |--< Flashcard          (Leitner box 1-5, spaced repetition)
+                 |--< Task --1 Recommendation
+                 |--< StudySession
+                 |--< Quiz
+                 |--< ChatMessage        (tutor history)
+                 |--< MockExam --< MockExamQuestion
+                 |--< Formula
+                 |--< Note               (TipTap rich content)
+                 `--< ResourceConnection (edges of the knowledge map)
+\end{lstlisting}
+
+Key fields worth knowing:
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{User} --- \code{groq\_api\_key\_encrypted} (Fernet-encrypted BYOK
+  key, NULL = still on trial), \code{trial\_requests\_used} (counts free AI
+  actions).
+\item \textbf{Subject} --- \code{exam\_date}, \code{priority\_level} (1--5),
+  \code{difficulty} (1--5), \code{confidence\_score} (0--100). These feed the
+  recommendation formula.
+\item \textbf{Material} --- \code{summary}, \code{key\_concepts} (JSON),
+  \code{learning\_complexity}, \code{importance\_level},
+  \code{deep\_research\_summary}.
+\item \textbf{Flashcard} --- \code{box} (Leitner 1--5) + \code{next\_review\_date}
+  drive spaced repetition.
+\item \textbf{ResourceConnection} --- \code{source\_material\_id} $\rightarrow$
+  \code{target\_material\_id} with a \code{connection\_type}
+  (Prerequisite / Extension / Foundational): the AI-generated knowledge-map edges.
+\end{itemize}
+
+\subsection{Schema migrations}
+
+There is no Alembic. On startup \code{main.py} runs
+\code{Base.metadata.create\_all()} to create missing tables, followed by a series
+of idempotent \code{ALTER TABLE ... ADD COLUMN} statements wrapped in try/except
+(e.g.\ adding \code{deep\_research\_summary}, \code{groq\_api\_key\_encrypted},
+\code{trial\_requests\_used}). This lightweight approach keeps the SQLite file
+forward-compatible across redeploys without a migration tool.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Authentication}
+
+\code{backend/app/auth.py}, intentionally dependency-free (hashlib / hmac /
+secrets only):
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Passwords:} PBKDF2-HMAC-SHA256, 260{,}000 iterations.
+\item \textbf{Tokens:} \code{base64url(payload).hex(hmac\_sha256(secret, payload))},
+  30-day TTL. Stateless --- no server session store.
+\item \textbf{Secret:} \code{SECRET\_KEY} from env, else generated once and
+  persisted to \code{.auth\_secret} next to the DB so sessions survive restarts.
+\item \textbf{Frontend:} token + user cached in \code{localStorage}
+  (\code{fb\_token} / \code{fb\_user}). \code{authFetch} in \code{lib/api.ts}
+  attaches the bearer token and, on a 401, clears the session and redirects to
+  \code{/login}.
+\item \textbf{Admin:} \code{ADMIN\_EMAILS} env allowlist gates \code{/api/admin/*}.
+  Single-owner project --- a plain email allowlist, no roles system.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{AI agent layer}
+
+\code{backend/app/services/agents.py}. Every agent calls \code{run\_llm()}, which
+targets Groq \code{llama-3.3-70b-versatile} at \code{temperature=0.3}, optionally
+in JSON mode, and raises \code{AIServiceError} on any failure rather than
+fabricating content. Before the prompt is sent, Headroom compresses the
+user-supplied context locally to cut Groq token spend.
+
+\begin{tabularx}{\textwidth}{>{\bfseries}l L}
+\toprule
+\rowcolor{fbBrown}\hdr{Agent} & \hdr{Job} \\
+\midrule
+SummarizationAgent & Exhaustive cited summary + key concepts + complexity /
+  importance ratings (JSON). Emits Mermaid/ASCII diagrams and \code{[Slide N]}
+  citations. \\
+DeepResearchAgent & Under-the-hood mechanics, exam pitfalls, real-world case
+  studies --- Markdown enrichment supplement. \\
+QuizGenerationAgent & Flashcards + multiple-choice quizzes with mandatory source
+  citations and per-question explanations; \code{generate\_more\_items} adds more
+  while avoiding duplicates. \\
+MockExamAgent & Generates 3 open-ended exam questions; grades typed answers 0--100
+  on accuracy / completeness / terminology with constructive feedback. \\
+FormulaExtractorAgent & Extracts formulas as LaTeX + variables + derivation steps
+  (JSON). \\
+CurriculumMapperAgent & Computes typed conceptual edges between materials
+  $\rightarrow$ the knowledge map. \\
+PlanningRecommendationAgent & \emph{Not an LLM call} --- deterministic Python
+  scoring of tasks (see below). \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Recommendation score}
+
+\code{PlanningRecommendationAgent.calculate\_recommendations} ranks pending tasks:
+
+\begin{lstlisting}
+score = (exam_urgency  * 0.4) + (topic_importance * 0.3)
+      + (low_confidence * 0.2) + (incompletion    * 0.1)
+\end{lstlisting}
+
+Urgency is derived from days remaining to \code{exam\_date} ($\leq$1 day
+$\rightarrow$ 10, decaying with distance); low-confidence from
+\code{100 - confidence\_score}. The result is scaled to 0--100 for display. The
+lowest-confidence topic with the nearest exam floats to the top.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Ingestion pipeline}
+
+\code{POST /api/materials/upload} (\code{main.py}). Upload is a 7-step pipeline;
+steps 1--2 run synchronously in the request, steps 3--7 run in a FastAPI
+\code{BackgroundTask} so the HTTP response returns immediately with a
+\code{job\_id}.
+
+\begin{lstlisting}
+[1] Save file to uploads/                          (sync, in request)
+[2] Extract text (pypdf / docx2txt / python-pptx)  (sync, in request)
+    -- response returns with job_id --
+[3] Chunk (1000 chars, 200 overlap) -> index into vector_store.json
+[4] SummarizationAgent -> summary, key_concepts, ratings
+[5] DeepResearchAgent  -> deep_research_summary   (dashboard unlocks here)
+[6] QuizGenerationAgent -> flashcards + quizzes
+[7] Create a "review" study Task
+\end{lstlisting}
+
+Progress streams to the client over \textbf{Server-Sent Events} at
+\code{GET /api/materials/upload-progress/\{job\_id\}}. The free-trial action is
+consumed \emph{only after} the background pipeline succeeds, so a failed digestion
+never burns a user's allowance.
+
+Because the background thread runs after the response is sent, it cannot see the
+request's contextvar; the resolved Groq key is passed explicitly and re-bound with
+\code{set\_request\_key()} inside the thread (see \S\ref{sec:byok}).
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{RAG tutor}
+
+\code{backend/app/services/langchain\_chat.py}, entered from
+\code{POST /api/tutor/chat}.
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Retrieval:} \code{vector\_store.py} is a from-scratch
+  \textbf{TF-IDF cosine} store persisted as \code{vector\_store.json} --- no
+  external vector DB, no embedding API. It computes IDF over the filtered document
+  set at query time and returns the top-$k$ chunks. Documents are filtered by
+  \code{subject\_id} so a query only ever sees the current subject's material.
+\item \textbf{Agent loop:} a Groq tool-calling loop (max 5 iterations) with three
+  tools --- \code{search\_course\_materials}, \code{get\_subject\_info},
+  \code{get\_study\_progress}. Search is hard-capped at 2 calls per message.
+\item \textbf{Token compression:} retrieved chunks are run through Headroom
+  (\code{target\_ratio=0.2}) before going back to Groq --- RAG chunks are search
+  results, not conversation, so aggressive compression is safe and cuts cost.
+\item \textbf{Personas (\code{mode}):} \code{standard}, \code{simplified}
+  (``explain like I'm 5''), and \code{analogies} inject different system-prompt
+  suffixes.
+\item \textbf{Resilience:} on a malformed tool call the loop retries at escalating
+  temperature (greedy decoding would just reproduce the same bad call); if
+  tool-calling can't be recovered it falls back to a direct no-tools answer. In
+  trial mode only, a 429 rate-limit spills over to a second server key
+  (\code{GROQ\_API\_KEY\_2}) --- a personal key never spills onto the owner's
+  account.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{BYOK + free-trial model}\label{sec:byok}
+
+\code{backend/app/key\_context.py}. The app used to share one server Groq key for
+every visitor; this module makes AI usage freemium so hosting cost stays flat.
+
+\begin{itemize}[leftmargin=1.4em]
+\item New accounts get \code{FREE\_TRIAL\_LIMIT = 5} AI actions on the
+  \textbf{server} key.
+\item After that, the user saves a personal Groq key (via
+  \code{PUT /api/account/groq-key}), which is validated with a live
+  \code{models.list()} call and stored \textbf{Fernet-encrypted} at rest. The
+  Fernet key is derived (SHA-256) from the app's existing \code{SECRET\_KEY}, so
+  there is no new secret to manage. Keys are never returned in full --- only a
+  masked hint (\code{gsk\_...4f9a}).
+\item \textbf{Key routing:} the resolved per-request key is stashed in a
+  \code{contextvars.ContextVar}; \code{agents.run\_llm} and the tutor read it via
+  \code{get\_current\_key()}. This threads a per-user key through module-level Groq
+  client singletons without rewriting every agent signature. \code{contextvars}
+  are per-thread/task, so it is safe under FastAPI's sync threadpool and async
+  workers.
+\item \textbf{Gate:} \code{ai\_action()} (context manager) resolves the key,
+  enforces the cap (HTTP 402 when exhausted, 503 when no key exists), and
+  increments the trial counter \emph{only} on success. \code{count=False} covers
+  auto-fired paths like recommendations that should use a key but not consume the
+  allowance.
+\end{itemize}
+
+\subsection{Runtime key overrides}
+
+\code{config.py} supports a \code{.runtime\_overrides.env} file: the admin
+dashboard's ``rotate Groq key'' feature writes here (in the persisted data volume)
+instead of editing the container's real \code{.env}, so key changes survive
+\code{docker rm} + redeploy without rebuilding the image.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{HTTP API reference}
+
+All routes are under \code{/api}. All except signup/login require a bearer token.
+Ownership is enforced per subject (\code{own\_subject} / \code{assert\_owner}).
+
+\subsection{Auth \& account}
+\begin{tabularx}{\textwidth}{l l L}
+\toprule
+\rowcolor{fbBrown}\hdr{Method} & \hdr{Path} & \hdr{Purpose} \\
+\midrule
+POST   & \code{/auth/signup} & Register, returns token \\
+POST   & \code{/auth/login}  & Log in, returns token \\
+GET    & \code{/auth/me}     & Current user \\
+GET    & \code{/account}     & Account + trial/key status \\
+PUT    & \code{/account/groq-key} & Save/validate personal Groq key \\
+DELETE & \code{/account/groq-key} & Remove personal key (back to trial) \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Subjects}
+\begin{tabularx}{\textwidth}{l l L}
+\toprule
+\rowcolor{fbBrown}\hdr{Method} & \hdr{Path} & \hdr{Purpose} \\
+\midrule
+POST   & \code{/subjects}       & Create subject \\
+GET    & \code{/subjects}       & List subjects \\
+GET    & \code{/subjects/\{id\}} & Subject dashboard payload \\
+PATCH  & \code{/subjects/\{id\}} & Update (exam date, priority, confidence...) \\
+DELETE & \code{/subjects/\{id\}} & Delete (cascades) \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Materials \& knowledge map}
+\begin{tabularx}{\textwidth}{l l L}
+\toprule
+\rowcolor{fbBrown}\hdr{Method} & \hdr{Path} & \hdr{Purpose} \\
+\midrule
+POST  & \code{/materials/upload} & Upload + start ingestion, returns \code{job\_id} \\
+GET   & \code{/materials/upload-progress/\{job\_id\}} & SSE progress stream \\
+GET   & \code{/subjects/\{id\}/materials} & List materials \\
+PATCH/DELETE & \code{/materials/\{id\}} & Edit / delete material \\
+POST  & \code{/subjects/\{id\}/generate-map} & Build knowledge-map edges \\
+GET   & \code{/subjects/\{id\}/map} & Fetch nodes + edges \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Study aids}
+\begin{tabularx}{\textwidth}{l l L}
+\toprule
+\rowcolor{fbBrown}\hdr{Method} & \hdr{Path} & \hdr{Purpose} \\
+\midrule
+GET/POST    & \code{/subjects/\{id\}/flashcards} & List / add flashcards \\
+PUT/DELETE  & \code{/flashcards/\{id\}} & Edit / delete \\
+POST        & \code{/flashcards/\{id\}/review} & Record review, advance Leitner box \\
+GET/POST    & \code{/subjects/\{id\}/quizzes} & List / add quizzes \\
+PUT/DELETE  & \code{/quizzes/\{id\}} & Edit / delete \\
+POST        & \code{/quizzes/\{id\}/answer} & Submit answer, get grading \\
+POST        & \code{/subjects/\{id\}/generate-more} & Generate more flashcards/quizzes \\
+*           & \code{/subjects/\{id\}/mock-exams}, \code{/mock-exams/\{id\}} & Mock exams (CRUD) \\
+POST        & \code{/mock-exams/\{id\}/submit} & Submit + auto-grade \\
+GET/POST    & \code{/subjects/\{id\}/formulas}, \code{/formulas/generate} & Formula sheets \\
+*           & \code{/formulas/\{id\}} & Edit / delete / annotate \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Tasks, sessions, notes, tutor, dashboard}
+\begin{tabularx}{\textwidth}{l l L}
+\toprule
+\rowcolor{fbBrown}\hdr{Method} & \hdr{Path} & \hdr{Purpose} \\
+\midrule
+*     & \code{/tasks}, \code{/subjects/\{id\}/tasks}, \code{/tasks/\{id\}} & Planner tasks \\
+*     & \code{/study-sessions}, \code{/subjects/\{id\}/sessions} & Focus sessions \\
+*     & \code{/subjects/\{id\}/notes}, \code{/notes/\{id\}} & Rich notes \\
+POST  & \code{/tutor/chat} & RAG tutor (query + persona mode) \\
+*     & \code{/subjects/\{id\}/chats}, \code{/chats/\{id\}} & Tutor history \\
+GET   & \code{/dashboard/recommendations} & Ranked next actions \\
+GET   & \code{/dashboard/summary} & Aggregate stats \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Admin (\code{ADMIN\_EMAILS} only)}
+\code{GET /admin/overview}, \code{GET /admin/logs}, \code{GET /admin/health},
+\code{GET|PUT /admin/config} --- usage stats, app logs (from the stdout tee),
+health checks, and live Groq-key rotation.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Frontend}
+
+Next.js App Router. Three main routes:
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{\code{/} (page.tsx)} --- auth gate + subject list/creation.
+\item \textbf{\code{/subject/[id]} (page.tsx, \textasciitilde 3800 lines)} --- the
+  study workspace: dashboard, materials, flashcards, quizzes, mock exams, formula
+  sheets, knowledge map, notes, tutor chat, focus mode. This is where most of the
+  product lives.
+\item \textbf{\code{/admin}} --- admin dashboard (usage, logs, health, key
+  rotation).
+\end{itemize}
+
+\code{lib/api.ts} is the single typed API client: session helpers,
+\code{authFetch} (bearer + 401 redirect), and \code{ApiError} (carries HTTP status
+so callers can branch, e.g.\ 403 $\rightarrow$ ``not authorized''). \code{API\_BASE}
+comes from \code{NEXT\_PUBLIC\_API\_URL} (defaults to
+\code{http://127.0.0.1:8000/api}). Notes use the TipTap-based \code{NotionEditor}
+with math/KaTeX support.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Configuration}
+
+Backend env (\code{backend/.env}, see \code{.env.example}):
+
+\begin{tabularx}{\textwidth}{>{\ttfamily}l L}
+\toprule
+\rowcolor{fbBrown}\hdr{Var} & \hdr{Purpose} \\
+\midrule
+GROQ\_API\_KEY   & Server key for the free trial \\
+GROQ\_API\_KEY\_2 & Rate-limit fallback (trial mode only) \\
+DATABASE\_URL    & Defaults to \code{sqlite:///./finals\_buddy.db} \\
+SECRET\_KEY      & Token signing + BYOK encryption seed (auto-generated if unset) \\
+CORS\_ORIGINS    & Comma-separated allowed frontend origins \\
+ADMIN\_EMAILS    & Comma-separated admin allowlist \\
+RUNTIME\_OVERRIDES\_PATH & Path to the runtime key-override file \\
+PORT / HOST      & Server bind (default \code{0.0.0.0:8000}) \\
+\bottomrule
+\end{tabularx}
+
+Frontend env: \code{NEXT\_PUBLIC\_API\_URL} $\rightarrow$ backend \code{/api} base.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Running locally}
+
+\textbf{Backend:}
+\begin{lstlisting}
+cd backend
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env        # add GROQ_API_KEY
+python -m uvicorn app.main:app --reload --port 8000
+\end{lstlisting}
+API docs (Swagger) at \code{http://127.0.0.1:8000/docs}.
+
+\textbf{Frontend:}
+\begin{lstlisting}
+cd frontend
+npm install
+# .env.local: NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/api
+npm run dev        # http://localhost:3000
+\end{lstlisting}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Deployment}
+
+\begin{itemize}[leftmargin=1.4em]
+\item \textbf{Backend:} Docker image (\code{backend/Dockerfile}),
+  \code{python:3.12-slim}, runs on x86\_64 and ARM64 (Oracle Cloud Ampere A1). The
+  app \emph{runs from} \code{/srv/finals-buddy/data} (its \code{WORKDIR}) while
+  code lives at \code{/srv/finals-buddy}, so every relative artifact ---
+  \code{finals\_buddy.db}, \code{uploads/}, \code{vector\_store.json},
+  \code{.auth\_secret}, \code{.runtime\_overrides.env}, \code{logs/app.log} ---
+  lands in one mountable volume:
+\begin{lstlisting}
+docker run -v finals_data:/srv/finals-buddy/data --env-file .env \
+           -p 8000:8000 finals-buddy
+\end{lstlisting}
+  Uvicorn runs with \code{--proxy-headers --forwarded-allow-ips=*} behind a
+  reverse proxy.
+\item \textbf{Frontend:} Vercel; \code{NEXT\_PUBLIC\_API\_URL} points at the
+  deployed backend.
+\item \textbf{Logs:} stdout/stderr are teed to \code{logs/app.log} (size-capped)
+  so the admin dashboard can show \code{docker logs}-equivalent output without
+  mounting the Docker socket into the container.
+\end{itemize}
+
+For the full deployment runbook see \code{DEPLOY.md} (not tracked in the public
+repo).
+
+\vfill
+\begin{center}
+{\color{fbSage}\rule{0.4\textwidth}{1.5pt}}\\[0.4cm]
+{\color{fbMute}\small Finals Buddy --- Technical Documentation}
+\end{center}
+
+\end{document}

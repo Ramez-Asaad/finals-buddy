@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-20 -16 520 152" role="img" aria-label="Finals Buddy logo">
+  <rect x="-20" y="-16" width="520" height="152" fill="none"/>
+  <!-- badge -->
+  <circle cx="60" cy="60" r="32" fill="#A7C4A0"/>
+  <!-- mortarboard cap -->
+  <polygon points="60,42 89,55 60,68 31,55" fill="#ECE6DA"/>
+  <path d="M47 60 L73 60 L69 72 Q60 78 51 72 Z" fill="#ECE6DA"/>
+  <circle cx="60" cy="55" r="2.6" fill="#34302B"/>
+  <!-- tassel (dusty-rose accent) -->
+  <path d="M60 55 L84 55 L84 74" fill="none" stroke="#D28C97" stroke-width="2.6" stroke-linecap="round"/>
+  <circle cx="84" cy="76" r="3.4" fill="#D28C97"/>
+  <!-- wordmark -->
+  <text x="112" y="76" font-family="Fraunces, Georgia, 'Times New Roman', serif" font-size="50" font-weight="700" fill="#34302B">Finals Buddy</text>
+</svg>

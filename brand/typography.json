@@ -1,0 +1,7 @@
+{
+  "name": "Finals Buddy",
+  "heading": { "family": "Fraunces", "fallback": "Fraunces, Georgia, 'Times New Roman', serif" },
+  "body": { "family": "Outfit", "fallback": "Outfit, system-ui, -apple-system, sans-serif" },
+  "weights": [300, 400, 500, 600, 700],
+  "scale": 1.25
+}

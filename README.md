@@ -39,7 +39,7 @@ Upload your course material and Finals Buddy does the rest, parsing the document
 | **Recommendation engine** | Surfaces the single highest-ROI thing to do next via a weighted priority score (see below). |
 | **Focus mode** | Distraction-free full-screen canvas with a built-in Pomodoro timer. |
 | **Auth + admin** | JWT authentication and a lightweight admin dashboard (usage stats, logs, health checks, live API-key rotation). |
-| **Free trial + BYOK** | Every visitor gets a handful of free AI generations, then brings their own (free) Groq API key for unlimited use — so hosting costs stay flat no matter how many people try it. |
+| **Free trial + BYOK** | Every visitor gets a handful of free AI generations, then brings their own (free) Groq API key for unlimited use, so hosting costs stay flat no matter how many people try it. |
 
 ### Free trial & bring-your-own-key
 
