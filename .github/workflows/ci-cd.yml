@@ -37,7 +37,12 @@ jobs:
 
   build-and-deploy:
     needs: test
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    # Pushes deploy only from master. workflow_dispatch deploys from whatever
+    # branch it is run on, so the pipeline can be proven end to end before the
+    # migration branch is merged.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
