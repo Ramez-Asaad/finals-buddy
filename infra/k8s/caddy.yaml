@@ -8,7 +8,16 @@ metadata:
   namespace: finals-buddy
 data:
   Caddyfile: |
+    # Named host: automatic HTTPS via Let's Encrypt. Requires DNS to already
+    # point here, so it only starts serving certificates after cutover.
     {$DOMAIN_NAME} {
+        reverse_proxy finals-buddy-api.finals-buddy.svc.cluster.local:8000
+    }
+
+    # Catch-all on plain HTTP, matched only when the Host header is not the
+    # name above. This is what lets the deploy pipeline smoke-test the new
+    # instance by IP before DNS has moved, and it keeps working afterwards.
+    :80 {
         reverse_proxy finals-buddy-api.finals-buddy.svc.cluster.local:8000
     }
 ---
