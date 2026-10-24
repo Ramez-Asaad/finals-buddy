@@ -88,18 +88,16 @@ llm_agent_iterations = Histogram(
 )
 
 # ---- Token economics ----
-headroom_tokens_before_total = Counter(
-    "fb_headroom_tokens_before_total", "Tokens in RAG chunks before compression"
-)
-headroom_tokens_after_total = Counter(
-    "fb_headroom_tokens_after_total", "Tokens actually sent to Groq after compression"
-)
-headroom_compression_ratio = Histogram(
-    "fb_headroom_compression_ratio", "Fraction of tokens saved by Headroom",
-    buckets=(0.0, 0.2, 0.4, 0.6, 0.7, 0.8, 0.9, 1.0),
-)
-headroom_failures_total = Counter(
-    "fb_headroom_failures_total", "Compression failed and raw chunks were sent instead"
+# Headroom used to sit here. Its compressor is a PyTorch model, torch was
+# deliberately excluded from the image, so it silently compressed nothing
+# while costing ~240MB of dependencies. It was removed; what stayed is the
+# measurement, because RAG payload size is what actually drives token spend.
+# One histogram, not a histogram plus a counter: its _sum is already the
+# running total, and a Counter named *_total collides with the histogram's
+# own series once prometheus_client normalises the name.
+rag_payload_tokens = Histogram(
+    "fb_rag_payload_tokens", "Estimated tokens of retrieved context per request",
+    buckets=(100, 250, 500, 1000, 2000, 4000, 8000),
 )
 
 # ---- Answer quality feedback ----
@@ -142,11 +140,15 @@ def record_retrieval(results, duration: float, corpus_size: int):
 
 
 @safe
-def record_compression(tokens_before: int, tokens_after: int):
-    headroom_tokens_before_total.inc(tokens_before)
-    headroom_tokens_after_total.inc(tokens_after)
-    if tokens_before > 0:
-        headroom_compression_ratio.observe(1.0 - (tokens_after / tokens_before))
+def record_payload_tokens(text: str):
+    """Rough token estimate for the retrieved context.
+
+    Four characters per token is the usual English approximation. An exact
+    count would mean shipping a tokenizer, which is most of what the removed
+    dependency cost. This is accurate enough to watch a trend, which is all
+    this number is used for.
+    """
+    rag_payload_tokens.observe(max(0, len(text) // 4))
 
 
 @safe

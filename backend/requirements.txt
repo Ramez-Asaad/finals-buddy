@@ -16,15 +16,13 @@ langchain-groq>=0.3.0
 langchain-core>=0.3.0
 langgraph>=0.2.0
 
-# Local context compression before prompts reach Groq (cuts token spend
-# on large RAG chunks and pasted document text). Deliberately NOT installing
-# headroom-ai[all] here — that extra pulls in torch, mem0ai, qdrant-client,
-# and neo4j, and hnswlib needs a C++ toolchain, none of which the ARM64
-# deploy box needs. onnxruntime + transformers are the two deps the default
-# ONNX-based Kompress text compressor actually needs.
-headroom-ai>=0.31.0
-onnxruntime>=1.16.0
-transformers>=4.30.0,<6.0
+# headroom-ai, onnxruntime and transformers were removed here. Headroom's
+# Kompress compressor is a PyTorch model, and torch was deliberately never
+# installed, so transformers could only ever load tokenizers and compression
+# silently did nothing while costing ~240MB of image plus ~264MB of model
+# downloads at runtime. Retrieval already caps each chunk at 800 characters,
+# which is what actually bounds the payload. Token spend is still measured:
+# see fb_rag_payload_tokens in app/observability.py.
 
 # Metrics for the RAG/LLM layer, scraped by Prometheus (see app/observability.py)
 prometheus-client>=0.21.0

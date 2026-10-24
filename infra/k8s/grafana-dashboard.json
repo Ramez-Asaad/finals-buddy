@@ -70,12 +70,12 @@
     },
     {
       "type": "timeseries",
-      "title": "Token spend before and after compression",
-      "description": "The gap between these two lines is what Headroom saves on every Groq call.",
+      "title": "Context tokens sent to Groq",
+      "description": "Estimated tokens of retrieved context per request. This is the number that drives token spend as the corpus grows.",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
       "targets": [
-        { "expr": "rate(fb_headroom_tokens_before_total[10m])", "legendFormat": "tokens before", "datasource": { "type": "prometheus", "uid": "prometheus" } },
-        { "expr": "rate(fb_headroom_tokens_after_total[10m])", "legendFormat": "tokens sent to Groq", "datasource": { "type": "prometheus", "uid": "prometheus" } }
+        { "expr": "rate(fb_rag_payload_tokens_sum[10m])", "legendFormat": "tokens/sec", "datasource": { "type": "prometheus", "uid": "prometheus" } },
+        { "expr": "histogram_quantile(0.95, rate(fb_rag_payload_tokens_bucket[10m]))", "legendFormat": "p95 per request", "datasource": { "type": "prometheus", "uid": "prometheus" } }
       ]
     },
     {

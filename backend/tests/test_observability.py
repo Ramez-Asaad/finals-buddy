@@ -5,7 +5,7 @@ broken metric must never surface as a failed request for a student.
 """
 from prometheus_client import generate_latest
 
-from app.observability import record_compression, record_feedback, record_retrieval
+from app.observability import record_feedback, record_payload_tokens, record_retrieval
 
 
 def _metrics_text():
@@ -32,14 +32,13 @@ def test_zero_match_is_counted_separately_from_weak_match():
     assert "fb_rag_empty_result_total" in after
 
 
-def test_compression_ratio_recorded():
-    record_compression(4000, 800)
-    assert "fb_headroom_compression_ratio" in _metrics_text()
+def test_payload_tokens_recorded():
+    record_payload_tokens("x" * 4000)
+    assert "fb_rag_payload_tokens" in _metrics_text()
 
 
-def test_compression_ignores_zero_tokens():
-    """Must not raise ZeroDivisionError on an empty payload."""
-    record_compression(0, 0)
+def test_payload_tokens_handles_empty_text():
+    record_payload_tokens("")
 
 
 def test_feedback_updates_rolling_satisfaction():
@@ -53,5 +52,5 @@ def test_recording_never_raises_on_bad_input():
     """The safe() wrapper is the contract: metrics are a side channel and must
     not be able to break a student's request."""
     record_retrieval(None, "not-a-number", None)
-    record_compression("x", None)
+    record_payload_tokens(None)
     record_feedback(None)
