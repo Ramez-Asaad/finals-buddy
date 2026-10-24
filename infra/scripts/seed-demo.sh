@@ -32,6 +32,21 @@ fi
 AUTH="Authorization: Bearer $TOKEN"
 echo "token acquired"
 
+# Put the demo account on its own Groq key. Server-key usage is capped by the
+# free trial, which this script exhausts after a couple of runs, so without
+# this the seeding silently stops producing AI traffic. The key is read from
+# SSM using the instance role and is never echoed.
+echo "== attach Groq key to demo account =="
+GROQ_KEY=$(aws ssm get-parameter --name /finals-buddy/GROQ_API_KEY --with-decryption \
+  --region "${AWS_REGION:-us-east-1}" --query Parameter.Value --output text 2>/dev/null)
+if [ -n "$GROQ_KEY" ] && [ "$GROQ_KEY" != "placeholder-set-out-of-band" ]; then
+  RES=$(curl -s --max-time 60 -X PUT "$BASE/api/account/groq-key" -H "$AUTH" \
+    -H 'Content-Type: application/json' -d "{\"api_key\":\"$GROQ_KEY\"}" -o /dev/null -w '%{http_code}')
+  echo "  groq-key set, http $RES"
+else
+  echo "  no usable key in SSM, continuing on the free trial"
+fi
+
 echo "== create subject =="
 SUBJECT_ID=$(curl -s --max-time 30 -X POST "$BASE/api/subjects" -H "$AUTH" \
   -H 'Content-Type: application/json' \
@@ -110,11 +125,15 @@ echo "$UP" | head -c 300
 echo
 
 echo "== tutor questions, to exercise retrieval and the Groq agent =="
+# Groq's free tier limits tokens per minute, and one agent run can make
+# several calls. Firing these back to back trips the limit, which then falls
+# over to the backup key. Pacing them keeps the seed data clean.
 ask() {
   echo "--- $1"
   curl -s --max-time 180 -X POST "$BASE/api/tutor/chat" -H "$AUTH" \
     -F "subject_id=$SUBJECT_ID" -F "query=$1" -F "mode=standard" | head -c 220
   echo
+  sleep "${ASK_DELAY:-30}"
 }
 ask "What are the four conditions required for deadlock?"
 ask "Why is the Round Robin time quantum size important?"
