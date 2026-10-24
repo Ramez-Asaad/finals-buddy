@@ -77,6 +77,7 @@ resource "aws_instance" "app" {
   user_data = templatefile("${path.module}/user_data.sh.tpl", {
     app_namespace = "finals-buddy"
     repo_url      = var.repo_url
+    repo_branch   = var.repo_branch
     aws_region    = var.aws_region
     account_id    = data.aws_caller_identity.current.account_id
     domain_name   = var.domain_name

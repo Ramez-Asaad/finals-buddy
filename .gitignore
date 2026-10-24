@@ -36,7 +36,7 @@ frontend/out/
 infra/terraform/.terraform/
 infra/terraform/*.tfstate
 infra/terraform/*.tfstate.*
-infra/terraform/tfplan
+infra/terraform/tfplan*
 infra/terraform/*.tfplan
 
 # --- misc ---

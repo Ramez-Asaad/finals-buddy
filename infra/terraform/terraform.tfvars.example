@@ -4,3 +4,6 @@ admin_cidr  = "203.0.113.10/32"
 github_repo = "Ramez-Asaad/finals-buddy"
 repo_url    = "https://github.com/Ramez-Asaad/finals-buddy.git"
 domain_name = "finalsbuddy.duckdns.org"
+
+# Switch to "master" once the migration branch merges.
+repo_branch = "mlops-migration"

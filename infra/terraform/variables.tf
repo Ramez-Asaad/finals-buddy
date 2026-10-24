@@ -29,6 +29,12 @@ variable "repo_url" {
   type        = string
 }
 
+variable "repo_branch" {
+  description = "Branch the instance checks out. Stays on the migration branch until this work merges."
+  type        = string
+  default     = "master"
+}
+
 variable "domain_name" {
   description = "Hostname Caddy obtains a certificate for. DNS must point here before cutover."
   type        = string

@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euxo pipefail
 
+# SSM is the only way in: there is no SSH key on this instance, so if the
+# agent is not running the box cannot be reached or deployed to at all. It is
+# meant to be preinstalled and enabled on AL2023, but the first build of this
+# instance never registered, so it is made explicit here and started before
+# the long dnf update rather than after it.
+dnf install -y amazon-ssm-agent || true
+systemctl enable --now amazon-ssm-agent || true
+
 dnf update -y
 dnf install -y git
 
@@ -20,7 +28,8 @@ done
 export PATH=$PATH:/usr/local/bin
 kubectl create namespace ${app_namespace} --dry-run=client -o yaml | kubectl apply -f -
 
-git clone ${repo_url} /opt/finals-buddy || (cd /opt/finals-buddy && git pull)
+git clone --branch ${repo_branch} ${repo_url} /opt/finals-buddy \
+  || (cd /opt/finals-buddy && git fetch origin ${repo_branch} && git checkout ${repo_branch} && git pull)
 
 # --- ECR pull credentials, refreshed because the token expires every 12h ---
 cat > /usr/local/bin/refresh-ecr-secret.sh <<'EOS'
