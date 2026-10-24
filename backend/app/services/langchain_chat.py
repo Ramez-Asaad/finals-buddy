@@ -2,7 +2,7 @@
 Hybrid Token-Compressing RAG Chat.
 
 Architecture:
-- The Brain: Groq (llama-3.3-70b-versatile) handles tool-calling and reasoning.
+- The Brain: Groq (model set by GROQ_MODEL) handles tool-calling and reasoning.
 - The Compressor: Headroom (local ONNX text compressor) reads massive RAG chunks and
   summarizes them to save Groq tokens and reduce cloud cost.
 """
@@ -17,7 +17,7 @@ from langchain_core.tools import tool
 from headroom import compress as headroom_compress
 
 from .vector_store import vector_store
-from ..config import GROQ_API_KEY_2
+from ..config import GROQ_API_KEY_2, GROQ_MODEL
 from ..key_context import get_current_key, is_server_key
 from ..errors import AIServiceError
 from ..observability import (
@@ -82,7 +82,7 @@ def search_course_materials(query: str) -> str:
     try:
         result = headroom_compress(
             [{"role": "user", "content": raw_text_payload}],
-            model="llama-3.3-70b-versatile",
+            model=GROQ_MODEL,
             compress_user_messages=True,
             protect_recent=0,
             target_ratio=0.2,
@@ -252,7 +252,7 @@ def _run_langchain_chat_impl(
         tools = [search_course_materials, get_subject_info, get_study_progress]
         tools_by_name = {t.name: t for t in tools}
 
-        MODEL_NAME = "llama-3.3-70b-versatile"
+        MODEL_NAME = GROQ_MODEL
 
         def make_groq_llm(api_key: str, temperature: float, with_tools: bool = True):
             """Build a Groq chat model. Retries after a malformed tool call use a

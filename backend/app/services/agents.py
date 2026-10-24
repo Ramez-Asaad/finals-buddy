@@ -24,9 +24,10 @@ def run_llm(system_prompt: str, user_prompt: str, response_format: str = "text")
     # rather than headroom's aggressive ~15%-kept default.
     try:
         from headroom import compress as headroom_compress
+        from ..config import GROQ_MODEL as _TOKENIZER_MODEL
         _compressed = headroom_compress(
             [{"role": "user", "content": user_prompt}],
-            model="llama-3.3-70b-versatile",
+            model=_TOKENIZER_MODEL,
             compress_user_messages=True,
             protect_recent=0,
             target_ratio=0.6,
@@ -46,8 +47,8 @@ def run_llm(system_prompt: str, user_prompt: str, response_format: str = "text")
     groq_client = groq_client_for(key)
 
     try:
-        # Standard versatile Groq reasoning model
-        model = "llama-3.3-70b-versatile"
+        from ..config import GROQ_MODEL
+        model = GROQ_MODEL
 
         kwargs = {
             "model": model,
