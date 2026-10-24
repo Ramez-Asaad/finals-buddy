@@ -7,6 +7,7 @@ Architecture:
   summarizes them to save Groq tokens and reduce cloud cost.
 """
 import json
+import time
 import traceback
 from typing import Dict, Any, List
 
@@ -19,6 +20,18 @@ from .vector_store import vector_store
 from ..config import GROQ_API_KEY_2
 from ..key_context import get_current_key, is_server_key
 from ..errors import AIServiceError
+from ..observability import (
+    headroom_failures_total,
+    llm_agent_iterations,
+    llm_duration,
+    llm_no_tools_fallback_total,
+    llm_rate_limit_switch_total,
+    llm_runs_total,
+    llm_search_limit_intercept_total,
+    llm_tool_calls_total,
+    llm_tool_validation_failures_total,
+    record_compression,
+)
 
 
 # ─── Global Tool Context ─────────────────────────────────────────────────────
@@ -75,11 +88,13 @@ def search_course_materials(query: str) -> str:
             target_ratio=0.2,
         )
         compressed_text = result.messages[0]["content"]
+        record_compression(result.tokens_before, result.tokens_after)
         print(f"  ✅ Headroom: {result.tokens_before} → {result.tokens_after} tokens "
               f"({result.compression_ratio:.0%} saved).")
         return compressed_text
 
     except Exception as e:
+        headroom_failures_total.inc()
         print(f"  ⚠️ Headroom compression failed: {e}. Returning raw chunks instead.")
         return raw_text_payload
 
@@ -170,6 +185,30 @@ INSTRUCTIONS:
 Note: tools are invoked through the native function-calling interface. Never write tool calls, function names, or JSON as plain text in your reply — either call a tool through the proper interface or answer the student directly in prose."""
 
 def run_langchain_chat(
+    subject_id: int,
+    query: str,
+    mode: str,
+    db_session
+) -> Dict[str, Any]:
+    """Timing and outcome wrapper around the agent loop.
+
+    `outcome` separates a clean answer from a degraded one: a run that answered
+    without tools still returns a response to the student, so counting only
+    errors would show a healthy system while materials go unused.
+    """
+    start = time.perf_counter()
+    try:
+        result = _run_langchain_chat_impl(subject_id, query, mode, db_session)
+        llm_runs_total.labels(outcome="success").inc()
+        return result
+    except Exception:
+        llm_runs_total.labels(outcome="error").inc()
+        raise
+    finally:
+        llm_duration.observe(time.perf_counter() - start)
+
+
+def _run_langchain_chat_impl(
     subject_id: int,
     query: str,
     mode: str,
@@ -266,6 +305,7 @@ def run_langchain_chat(
                         # Fall back to the server's second key ONLY in trial mode.
                         # A user on their own key must never spill onto ours.
                         if is_server_key(current_key) and GROQ_API_KEY_2 and current_key != GROQ_API_KEY_2:
+                            llm_rate_limit_switch_total.inc()
                             print("⚠️ Groq primary key hit rate limit. Switching to fallback key (GROQ_API_KEY_2).")
                             current_key = GROQ_API_KEY_2
                             current_llm = make_groq_llm(current_key, tool_temp)
@@ -276,6 +316,7 @@ def run_langchain_chat(
                     elif ("tool_use_failed" in err_str or "failed to call a function" in err_str
                           or "tool call validation" in err_str or "400" in err_str):
                         retry_count += 1
+                        llm_tool_validation_failures_total.inc()
                         if retry_count > max_tool_retries:
                             break  # Give up on tools; the no-tools fallback below will answer.
                         # Escalate temperature so we don't regenerate the identical bad tool call.
@@ -302,12 +343,14 @@ def run_langchain_chat(
             for tc in response.tool_calls:
                 tool_name = tc["name"]
                 tool_args = tc["args"]
+                llm_tool_calls_total.labels(tool=tool_name).inc()
                 print(f"  🔧 Groq calls tool: {tool_name}({tool_args})")
 
                 # Hard limit: prevent infinite search looping
                 if tool_name == "search_course_materials":
                     search_count += 1
                     if search_count > 2:
+                        llm_search_limit_intercept_total.inc()
                         print("  🛑 Hard limit reached. Intercepting tool call.")
                         result = "SYSTEM OVERRIDE: You have reached the maximum allowed searches. The exact information is NOT in the database. Formulate your final answer immediately based on your general knowledge and the context you already have."
                         messages.append(ToolMessage(content=result, tool_call_id=tc["id"]))
@@ -321,8 +364,11 @@ def run_langchain_chat(
 
                 messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
 
+        llm_agent_iterations.observe(i + 1)
+
         # Extract final answer
         if response is None or not (response.content or "").strip():
+            llm_no_tools_fallback_total.inc()
             # Tool-calling never produced a usable answer. Make one final attempt
             # WITHOUT tools bound so Groq can't hit tool-call validation at all —
             # the model just answers directly from context + general knowledge.

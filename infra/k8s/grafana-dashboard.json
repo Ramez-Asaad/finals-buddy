@@ -1,0 +1,94 @@
+{
+  "title": "Finals Buddy: RAG and LLM Health",
+  "timezone": "browser",
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Answers given without course materials (last 1h)",
+      "description": "The agent gave up on tool calling and answered from general knowledge. The student still got a reply, so this failure is invisible without this panel.",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "increase(fb_llm_no_tools_fallback_total[1h])", "datasource": { "type": "prometheus", "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [
+        { "color": "green", "value": 0 }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }
+      ] } } }
+    },
+    {
+      "type": "stat",
+      "title": "Tool call rejections (last 1h)",
+      "description": "Groq rejected the model's tool call and it was retried at a higher temperature.",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "increase(fb_llm_tool_validation_failures_total[1h])", "datasource": { "type": "prometheus", "uid": "prometheus" } }]
+    },
+    {
+      "type": "stat",
+      "title": "Rate limit key switches (last 1h)",
+      "description": "Primary Groq key exhausted and traffic moved to the backup key.",
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "increase(fb_llm_rate_limit_switch_total[1h])", "datasource": { "type": "prometheus", "uid": "prometheus" } }]
+    },
+    {
+      "type": "gauge",
+      "title": "Rolling answer satisfaction",
+      "description": "Share of thumbs-up over the last 100 rated answers.",
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "fb_tutor_rolling_satisfaction", "datasource": { "type": "prometheus", "uid": "prometheus" } }],
+      "fieldConfig": { "defaults": { "min": 0, "max": 1, "unit": "percentunit" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Retrieval quality: top-1 similarity",
+      "description": "Falling p50 means questions are drifting away from what the corpus covers.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "targets": [
+        { "expr": "histogram_quantile(0.5, rate(fb_rag_top1_similarity_bucket[10m]))", "legendFormat": "p50", "datasource": { "type": "prometheus", "uid": "prometheus" } },
+        { "expr": "histogram_quantile(0.95, rate(fb_rag_top1_similarity_bucket[10m]))", "legendFormat": "p95", "datasource": { "type": "prometheus", "uid": "prometheus" } }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Questions the corpus could not answer",
+      "description": "zero_match means the subject has no indexed material. empty_result means material exists but nothing overlapped the question.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "targets": [
+        { "expr": "rate(fb_rag_zero_match_total[10m])", "legendFormat": "no material indexed", "datasource": { "type": "prometheus", "uid": "prometheus" } },
+        { "expr": "rate(fb_rag_empty_result_total[10m])", "legendFormat": "no overlap with question", "datasource": { "type": "prometheus", "uid": "prometheus" } }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency: retrieval vs full agent run",
+      "description": "Separates local search cost from time spent waiting on Groq.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, rate(fb_rag_query_duration_seconds_bucket[10m]))", "legendFormat": "retrieval p95", "datasource": { "type": "prometheus", "uid": "prometheus" } },
+        { "expr": "histogram_quantile(0.95, rate(fb_llm_duration_seconds_bucket[10m]))", "legendFormat": "agent run p95", "datasource": { "type": "prometheus", "uid": "prometheus" } }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Token spend before and after compression",
+      "description": "The gap between these two lines is what Headroom saves on every Groq call.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "targets": [
+        { "expr": "rate(fb_headroom_tokens_before_total[10m])", "legendFormat": "tokens before", "datasource": { "type": "prometheus", "uid": "prometheus" } },
+        { "expr": "rate(fb_headroom_tokens_after_total[10m])", "legendFormat": "tokens sent to Groq", "datasource": { "type": "prometheus", "uid": "prometheus" } }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Tool usage by tool",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 21 },
+      "targets": [{ "expr": "rate(fb_llm_tool_calls_total[10m])", "legendFormat": "{{tool}}", "datasource": { "type": "prometheus", "uid": "prometheus" } }]
+    },
+    {
+      "type": "timeseries",
+      "title": "API traffic by status",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 21 },
+      "targets": [{ "expr": "sum by (status) (rate(fb_http_requests_total[5m]))", "legendFormat": "{{status}}", "datasource": { "type": "prometheus", "uid": "prometheus" } }]
+    }
+  ]
+}

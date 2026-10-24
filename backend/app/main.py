@@ -110,6 +110,8 @@ from .services.agents import (
 )
 from .services.vector_store import vector_store
 from .errors import AIServiceError
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from .observability import http_request_duration, http_requests_total, record_feedback
 from .key_context import (
     ai_action,
     resolve_key_and_gate,
@@ -353,6 +355,59 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def track_requests(request: Request, call_next):
+    """Record every request against its ROUTE TEMPLATE, not its raw path.
+
+    `/api/subjects/41` and `/api/subjects/42` must both report as
+    `/api/subjects/{subject_id}`. Labelling by raw path would mint a new time
+    series per subject id and eventually bury Prometheus in dead series.
+    """
+    start = time.perf_counter()
+    response = await call_next(request)
+    try:
+        route = request.scope.get("route")
+        endpoint = getattr(route, "path", None) or "unmatched"
+        http_request_duration.labels(endpoint=endpoint).observe(time.perf_counter() - start)
+        http_requests_total.labels(
+            method=request.method, endpoint=endpoint, status=str(response.status_code)
+        ).inc()
+    except Exception:
+        pass
+    return response
+
+
+@app.get("/metrics")
+def metrics():
+    """Prometheus scrape target. Unauthenticated on purpose: it exposes counts
+    and latencies only, never student content, and the port it is reached on
+    is not published to the internet."""
+    from fastapi.responses import Response
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get("/health")
+def health():
+    """Liveness probe for Kubernetes. Deliberately does no database or Groq
+    call: a probe that depends on a third party restarts the pod when that
+    third party has a bad day."""
+    return {"status": "ok"}
+
+
+@app.post("/api/tutor/feedback")
+def tutor_feedback(
+    verdict: str = Form(...),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Student rates a tutor answer. This is the ground truth the RAG pipeline
+    otherwise never gets: retrieval scores say a chunk matched, not that the
+    answer was useful."""
+    if verdict not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="verdict must be 'up' or 'down'")
+    record_feedback(verdict)
+    return {"status": "recorded"}
 
 # Helper to chunk text
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:

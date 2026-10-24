@@ -25,3 +25,6 @@ langgraph>=0.2.0
 headroom-ai>=0.31.0
 onnxruntime>=1.16.0
 transformers>=4.30.0,<6.0
+
+# Metrics for the RAG/LLM layer, scraped by Prometheus (see app/observability.py)
+prometheus-client>=0.21.0

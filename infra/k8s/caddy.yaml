@@ -1,0 +1,82 @@
+# Caddy terminates TLS for the public hostname and proxies to the API service.
+# It obtains and renews Let's Encrypt certificates on its own, which is why the
+# previous deployment used it, so the certificate story does not change here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caddy-config
+  namespace: finals-buddy
+data:
+  Caddyfile: |
+    {$DOMAIN_NAME} {
+        reverse_proxy finals-buddy-api.finals-buddy.svc.cluster.local:8000
+    }
+---
+# Certificates must outlive the pod. Without this, every restart re-requests
+# them and Let's Encrypt rate limits stop issuing after a few attempts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: caddy-data
+  namespace: finals-buddy
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy
+  namespace: finals-buddy
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: caddy
+  template:
+    metadata:
+      labels:
+        app: caddy
+    spec:
+      containers:
+        - name: caddy
+          image: caddy:2.8-alpine
+          env:
+            - name: DOMAIN_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: caddy-domain
+                  key: domain
+          ports:
+            # hostPort binds the node's real 80/443 so Let's Encrypt can reach
+            # it and browsers hit the node directly. There is no cloud load
+            # balancer in this design, deliberately: it would cost more per
+            # month than the instance.
+            - containerPort: 80
+              hostPort: 80
+            - containerPort: 443
+              hostPort: 443
+          volumeMounts:
+            - name: config
+              mountPath: /etc/caddy
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: caddy-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: caddy-data
