@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: finals-buddy
+---
+# The app writes finals_buddy.db, uploads/ and vector_store.json into its
+# working directory. Without this volume every pod restart would wipe a
+# student's materials and the whole retrieval corpus.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: finals-data
+  namespace: finals-buddy
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: finals-buddy-api
+  namespace: finals-buddy
+spec:
+  replicas: 1
+  # SQLite on a ReadWriteOnce volume tolerates exactly one writer, so the old
+  # pod must be gone before the new one starts. Rolling updates would briefly
+  # run two.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: finals-buddy-api
+  template:
+    metadata:
+      labels:
+        app: finals-buddy-api
+    spec:
+      imagePullSecrets:
+        - name: ecr-creds
+      containers:
+        - name: api
+          image: PLACEHOLDER_ECR_IMAGE
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: app-secrets
+                optional: true
+          volumeMounts:
+            - name: data
+              mountPath: /srv/finals-buddy/data
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1500m
+              # The ONNX token compressor loads a model into this process, so
+              # the ceiling is well above what a plain FastAPI app would need.
+              memory: 1536Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: finals-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: finals-buddy-api
+  namespace: finals-buddy
+spec:
+  selector:
+    app: finals-buddy-api
+  ports:
+    - port: 8000
+      targetPort: 8000

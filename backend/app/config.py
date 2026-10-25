@@ -21,6 +21,13 @@ if os.path.exists(RUNTIME_OVERRIDES_PATH):
     load_dotenv(RUNTIME_OVERRIDES_PATH, override=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./finals_buddy.db")
+
+# Groq retires models on its own schedule. llama-3.3-70b-versatile was the
+# hardcoded choice in four places and started returning 404 model_not_found,
+# which broke every AI feature at once. Keeping it as config means the next
+# retirement is an environment variable, not a code change.
+GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_API_KEY_2 = os.getenv("GROQ_API_KEY_2", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

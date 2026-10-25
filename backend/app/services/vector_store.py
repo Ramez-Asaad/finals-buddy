@@ -3,7 +3,10 @@ import json
 import numpy as np
 import math
 import re
+import time
 from typing import List, Dict, Any, Tuple
+
+from ..observability import record_retrieval
 
 VECTOR_STORE_FILE = "vector_store.json"
 
@@ -75,6 +78,14 @@ class SimpleVectorStore:
         self.save()
 
     def query(self, query_text: str, filter_metadata: Dict[str, Any] = None, k: int = 4) -> List[Tuple[Dict[str, Any], float]]:
+        """Timing wrapper. The search itself has several early returns, so
+        measuring here catches every path instead of each one separately."""
+        start = time.perf_counter()
+        results = self._query_impl(query_text, filter_metadata, k)
+        record_retrieval(results, time.perf_counter() - start, len(self.documents))
+        return results
+
+    def _query_impl(self, query_text: str, filter_metadata: Dict[str, Any] = None, k: int = 4) -> List[Tuple[Dict[str, Any], float]]:
         if not self.documents:
             return []
 

@@ -2,23 +2,34 @@
 Hybrid Token-Compressing RAG Chat.
 
 Architecture:
-- The Brain: Groq (llama-3.3-70b-versatile) handles tool-calling and reasoning.
-- The Compressor: Headroom (local ONNX text compressor) reads massive RAG chunks and
-  summarizes them to save Groq tokens and reduce cloud cost.
+- The Brain: Groq (model set by GROQ_MODEL) handles tool-calling and reasoning.
+- Retrieval returns chunks capped at 800 characters each, keeping the Groq
+  payload bounded without a separate compression model.
 """
 import json
+import time
 import traceback
 from typing import Dict, Any, List
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
-from headroom import compress as headroom_compress
 
 from .vector_store import vector_store
-from ..config import GROQ_API_KEY_2
+from ..config import GROQ_API_KEY_2, GROQ_MODEL
 from ..key_context import get_current_key, is_server_key
 from ..errors import AIServiceError
+from ..observability import (
+    llm_agent_iterations,
+    llm_duration,
+    llm_no_tools_fallback_total,
+    llm_rate_limit_switch_total,
+    llm_runs_total,
+    llm_search_limit_intercept_total,
+    llm_tool_calls_total,
+    llm_tool_validation_failures_total,
+    record_payload_tokens,
+)
 
 
 # ─── Global Tool Context ─────────────────────────────────────────────────────
@@ -61,27 +72,12 @@ def search_course_materials(query: str) -> str:
     _tool_context["last_sources"] = list(sources_seen)
     raw_text_payload = "\n\n---\n\n".join(raw_chunks)
 
-    # ─── Token Compressor (Headroom, local ONNX — no network round-trip) ───
-    # Aggressive ratio: this is search-result/RAG-chunk content, not the
-    # active conversation, so headroom's own docs recommend target_ratio=0.2
-    # for this case ("logs, search results").
-    print(f"  🗜️ Headroom: Compressing {len(raw_text_payload)} chars of raw chunks...")
-    try:
-        result = headroom_compress(
-            [{"role": "user", "content": raw_text_payload}],
-            model="llama-3.3-70b-versatile",
-            compress_user_messages=True,
-            protect_recent=0,
-            target_ratio=0.2,
-        )
-        compressed_text = result.messages[0]["content"]
-        print(f"  ✅ Headroom: {result.tokens_before} → {result.tokens_after} tokens "
-              f"({result.compression_ratio:.0%} saved).")
-        return compressed_text
-
-    except Exception as e:
-        print(f"  ⚠️ Headroom compression failed: {e}. Returning raw chunks instead.")
-        return raw_text_payload
+    # Each chunk is already capped at 800 characters above, which is what
+    # actually bounds this payload. Record its size so token spend stays
+    # visible on the dashboard.
+    record_payload_tokens(raw_text_payload)
+    print(f"  Retrieved {len(matches)} chunks, {len(raw_text_payload)} chars of context.")
+    return raw_text_payload
 
 
 @tool
@@ -158,7 +154,7 @@ You have access to tools to search the student's course materials, check their e
 
 INSTRUCTIONS:
 1. ALWAYS call `search_course_materials` if the student asks a question about their academic content.
-2. The `search_course_materials` tool will return a highly compressed summary of the relevant facts. Base your answer heavily on it.
+2. The `search_course_materials` tool returns excerpts from the student's own materials. Base your answer heavily on them.
 3. Cite sources naturally (e.g. "According to Lecture 4...").
 4. If you don't know the answer and the tool finds nothing, be honest and provide your best academic knowledge as a supplement.
 5. For exam/schedule questions, use `get_subject_info`.
@@ -175,9 +171,33 @@ def run_langchain_chat(
     mode: str,
     db_session
 ) -> Dict[str, Any]:
+    """Timing and outcome wrapper around the agent loop.
+
+    `outcome` separates a clean answer from a degraded one: a run that answered
+    without tools still returns a response to the student, so counting only
+    errors would show a healthy system while materials go unused.
+    """
+    start = time.perf_counter()
+    try:
+        result = _run_langchain_chat_impl(subject_id, query, mode, db_session)
+        llm_runs_total.labels(outcome="success").inc()
+        return result
+    except Exception:
+        llm_runs_total.labels(outcome="error").inc()
+        raise
+    finally:
+        llm_duration.observe(time.perf_counter() - start)
+
+
+def _run_langchain_chat_impl(
+    subject_id: int,
+    query: str,
+    mode: str,
+    db_session
+) -> Dict[str, Any]:
     """
     Main entry point: runs the Groq manual tool-calling loop.
-    Tools execute locally, with `search_course_materials` using Headroom for token compression.
+    Tools execute locally.
     """
     global _tool_context
     _tool_context = {
@@ -213,7 +233,7 @@ def run_langchain_chat(
         tools = [search_course_materials, get_subject_info, get_study_progress]
         tools_by_name = {t.name: t for t in tools}
 
-        MODEL_NAME = "llama-3.3-70b-versatile"
+        MODEL_NAME = GROQ_MODEL
 
         def make_groq_llm(api_key: str, temperature: float, with_tools: bool = True):
             """Build a Groq chat model. Retries after a malformed tool call use a
@@ -266,6 +286,7 @@ def run_langchain_chat(
                         # Fall back to the server's second key ONLY in trial mode.
                         # A user on their own key must never spill onto ours.
                         if is_server_key(current_key) and GROQ_API_KEY_2 and current_key != GROQ_API_KEY_2:
+                            llm_rate_limit_switch_total.inc()
                             print("⚠️ Groq primary key hit rate limit. Switching to fallback key (GROQ_API_KEY_2).")
                             current_key = GROQ_API_KEY_2
                             current_llm = make_groq_llm(current_key, tool_temp)
@@ -276,6 +297,7 @@ def run_langchain_chat(
                     elif ("tool_use_failed" in err_str or "failed to call a function" in err_str
                           or "tool call validation" in err_str or "400" in err_str):
                         retry_count += 1
+                        llm_tool_validation_failures_total.inc()
                         if retry_count > max_tool_retries:
                             break  # Give up on tools; the no-tools fallback below will answer.
                         # Escalate temperature so we don't regenerate the identical bad tool call.
@@ -302,12 +324,14 @@ def run_langchain_chat(
             for tc in response.tool_calls:
                 tool_name = tc["name"]
                 tool_args = tc["args"]
+                llm_tool_calls_total.labels(tool=tool_name).inc()
                 print(f"  🔧 Groq calls tool: {tool_name}({tool_args})")
 
                 # Hard limit: prevent infinite search looping
                 if tool_name == "search_course_materials":
                     search_count += 1
                     if search_count > 2:
+                        llm_search_limit_intercept_total.inc()
                         print("  🛑 Hard limit reached. Intercepting tool call.")
                         result = "SYSTEM OVERRIDE: You have reached the maximum allowed searches. The exact information is NOT in the database. Formulate your final answer immediately based on your general knowledge and the context you already have."
                         messages.append(ToolMessage(content=result, tool_call_id=tc["id"]))
@@ -321,8 +345,11 @@ def run_langchain_chat(
 
                 messages.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
 
+        llm_agent_iterations.observe(i + 1)
+
         # Extract final answer
         if response is None or not (response.content or "").strip():
+            llm_no_tools_fallback_total.inc()
             # Tool-calling never produced a usable answer. Make one final attempt
             # WITHOUT tools bound so Groq can't hit tool-call validation at all —
             # the model just answers directly from context + general knowledge.

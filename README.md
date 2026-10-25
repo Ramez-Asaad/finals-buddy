@@ -10,7 +10,7 @@
   <img alt="Python" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
   <img alt="LangChain" src="https://img.shields.io/badge/LangChain-LangGraph-1C3C3C?logo=langchain&logoColor=white">
   <img alt="Groq" src="https://img.shields.io/badge/LLM-Groq-F55036">
-  <img alt="Docker" src="https://img.shields.io/badge/Docker-Oracle_Cloud-2496ED?logo=docker&logoColor=white">
+  <img alt="Kubernetes" src="https://img.shields.io/badge/k3s-AWS_EC2-326CE5?logo=kubernetes&logoColor=white">
 </p>
 
 
@@ -57,7 +57,7 @@ So the thing you're least confident about, on the subject with the nearest exam,
 
 ---
 
-## 🖼️ Screenshots
+## Screenshots
 
 
 #### Dashboards
@@ -71,7 +71,7 @@ So the thing you're least confident about, on the subject with the nearest exam,
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 **Frontend**
 - **Next.js 16** (App Router, Turbopack) + **React 19** + **TypeScript**
@@ -80,20 +80,22 @@ So the thing you're least confident about, on the subject with the nearest exam,
 
 **Backend**
 - **FastAPI** + **SQLAlchemy 2** + **SQLite** + **Pydantic v2**
-- **LangChain** + **LangGraph** agent orchestration over **Groq** (Llama) models
+- **LangChain** + **LangGraph** agent orchestration over **Groq**, model set by `GROQ_MODEL`
 - Document parsing via **pypdf**, **docx2txt**, **python-pptx**
 - A lightweight NumPy vector store for RAG retrieval
-- **headroom-ai** context compression to cut token spend on large chunks
 - **JWT** auth
+- **Prometheus metrics** on the RAG and LLM layer, not just the server
 
 **Infrastructure**
-- **Docker** on an Oracle Cloud **ARM** VM, with **Caddy** for automatic HTTPS
+- **Kubernetes (k3s)** on **AWS EC2**, with **Caddy** for automatic HTTPS
+- **Terraform** for the whole environment: EC2, ECR, IAM, encrypted secrets in SSM Parameter Store
+- **Prometheus + Grafana** in-cluster, dashboard provisioned from the repo
 - **Frontend on Vercel**
-- **GitHub Actions CI/CD**: every push to `master` that touches the backend auto-rebuilds and redeploys the container over SSH, no manual steps
+- **GitHub Actions CI/CD**: tests and a retrieval-quality gate, then build, push to ECR and deploy over **AWS Systems Manager**. Authentication is **OIDC**, so no AWS credentials are stored in GitHub, and there is no SSH key or open port 22
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 **Requirements:** Node.js 18+ and Python 3.11+.
 AI features need a free [Groq API key](https://console.groq.com/keys). Without one, CRUD/auth still work fully and AI-generation endpoints return a clear `503` (no fake data).
@@ -126,7 +128,7 @@ App → **http://localhost:3000**
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 finals-buddy/
@@ -152,15 +154,25 @@ finals-buddy/
 │       │   └── login/
 │       ├── components/           # NotionEditor, Toast, …
 │       └── lib/api.ts            # API client
-├── .github/workflows/            # CI/CD auto-deploy
+├── infra/
+│   ├── terraform/                # EC2 + k3s, ECR, IAM (OIDC), SSM secrets
+│   ├── k8s/                      # app, Caddy, Prometheus, Grafana manifests
+│   └── scripts/                  # manifest apply, secret sync, demo seed
+├── .github/workflows/            # CI/CD: test → quality gate → build → deploy
 └── README.md
 ```
 
 ---
 
-## ☁️ Deployment
+## Deployment
 
-Live at **[finals-buddy.vercel.app](https://finals-buddy.vercel.app)**. The whole stack runs on an Oracle Cloud ARM VM for the backend (Docker + Caddy + persistent volume), Vercel for the frontend, and a GitHub Actions workflow that auto-redeploys the backend on every push.
+Live at **[finals-buddy.vercel.app](https://finals-buddy.vercel.app)**, with the backend on **AWS**.
+
+The backend runs as four workloads on a single-node **k3s** cluster: the API, **Caddy** for automatic HTTPS, **Prometheus**, and **Grafana**. The database, uploads and vector store live on a persistent volume. The entire environment is defined in **Terraform** under `infra/`, and application secrets live encrypted in **SSM Parameter Store** — Terraform creates the parameters but is deliberately blind to their values, so no key reaches git or state.
+
+Deploys run through **GitHub Actions**: tests and a retrieval-quality gate must pass, then the image is built, pushed to **ECR**, and rolled out over **AWS Systems Manager**. GitHub authenticates by **OIDC**, so no AWS credentials are stored in the repository, and the instance has no SSH key and no open port 22. Every deploy is smoke-tested against `/health` and `/metrics` before the run goes green.
+
+Full technical detail, including what the monitoring caught in its first hour, is in [`docs/DOCUMENTATION.md`](docs/DOCUMENTATION.md).
 
 ---
 

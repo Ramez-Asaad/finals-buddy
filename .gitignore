@@ -29,6 +29,16 @@ frontend/node_modules/
 frontend/.next/
 frontend/out/
 
+# --- terraform ---
+# Provider binaries are hundreds of MB, and state files record live resource
+# detail that has no business in a public repo. The lock file IS committed, so
+# everyone resolves the same provider versions.
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/tfplan*
+infra/terraform/*.tfplan
+
 # --- misc ---
 .DS_Store
 *.log
@@ -36,3 +46,12 @@ backend/.auth_secret
 ssh-key-2026-07-10.key.pub
 .vscode/settings.json
 DEPLOY.md
+
+# contains admin_cidr, which is a personal IP address
+infra/terraform/terraform.tfvars
+docs/DOCUMENTATION.aux
+docs/DOCUMENTATION.fdb_latexmk
+docs/DOCUMENTATION.fls
+docs/DOCUMENTATION.out
+docs/DOCUMENTATION.synctex.gz
+docs/DOCUMENTATION.toc

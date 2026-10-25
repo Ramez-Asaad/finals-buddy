@@ -3,6 +3,7 @@ import re
 from typing import List, Dict, Any
 from ..key_context import get_current_key, groq_client_for
 from ..errors import AIServiceError
+from ..observability import record_payload_tokens
 
 
 def safe_parse_json(response: str) -> Any:
@@ -17,26 +18,11 @@ def run_llm(system_prompt: str, user_prompt: str, response_format: str = "text")
     """Query Groq for a chat completion. Raises AIServiceError on any failure
     (missing key, API error) instead of ever falling back to fabricated content."""
 
-    # Compress the pasted document/context text before it reaches Groq.
-    # Only user_prompt (the raw material) is compressed, never system_prompt
-    # (the agent's instructions) — several agents here (e.g. SummarizationAgent)
-    # explicitly require exhaustive detail, so target_ratio is kept conservative
-    # rather than headroom's aggressive ~15%-kept default.
-    try:
-        from headroom import compress as headroom_compress
-        _compressed = headroom_compress(
-            [{"role": "user", "content": user_prompt}],
-            model="llama-3.3-70b-versatile",
-            compress_user_messages=True,
-            protect_recent=0,
-            target_ratio=0.6,
-        )
-        if _compressed.tokens_saved > 0:
-            print(f"  🗜️ Headroom: {_compressed.tokens_before} → {_compressed.tokens_after} tokens "
-                  f"({_compressed.compression_ratio:.0%} saved) on run_llm() prompt.")
-        user_prompt = _compressed.messages[0]["content"]
-    except Exception as e:
-        print(f"Headroom compression failed: {e}. Using uncompressed prompt.")
+    # Prompt text is sent to Groq as-is. Compression used to run here, but its
+    # model needs PyTorch, which this image deliberately does not ship, so it
+    # silently compressed nothing. Several agents here (SummarizationAgent for
+    # one) need exhaustive detail anyway, so lossy compression was a poor fit.
+    record_payload_tokens(user_prompt)
 
     # Resolve the key for THIS request: the user's own key, or the server key
     # during their free trial (set by key_context.ai_action on the endpoint).
@@ -46,8 +32,8 @@ def run_llm(system_prompt: str, user_prompt: str, response_format: str = "text")
     groq_client = groq_client_for(key)
 
     try:
-        # Standard versatile Groq reasoning model
-        model = "llama-3.3-70b-versatile"
+        from ..config import GROQ_MODEL
+        model = GROQ_MODEL
 
         kwargs = {
             "model": model,

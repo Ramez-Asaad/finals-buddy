@@ -1,0 +1,116 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [master]
+    paths: ["backend/**", "infra/**", ".github/workflows/ci-cd.yml"]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Deliberately not the full requirements file. The retrieval and metrics
+      # tests need numpy and prometheus-client only, so CI skips onnxruntime
+      # and transformers and finishes in seconds instead of minutes.
+      - name: Install test dependencies
+        run: pip install numpy "prometheus-client>=0.21.0" pytest
+
+      - name: Unit and metrics tests
+        working-directory: backend
+        run: python -m pytest tests/test_observability.py -v
+
+      - name: Retrieval quality gate
+        working-directory: backend
+        run: python -m pytest tests/test_rag_eval.py -v
+
+  build-and-deploy:
+    needs: test
+    # Pushes deploy only from master. workflow_dispatch deploys from whatever
+    # branch it is run on, so the pipeline can be proven end to end before the
+    # migration branch is merged.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          ECR_URI: ${{ vars.ECR_REPOSITORY_URL }}
+        working-directory: backend
+        run: |
+          docker build -t "$ECR_URI:${{ github.sha }}" -t "$ECR_URI:latest" .
+          docker push "$ECR_URI:${{ github.sha }}"
+          docker push "$ECR_URI:latest"
+
+      - name: Deploy via SSM
+        env:
+          ECR_URI: ${{ vars.ECR_REPOSITORY_URL }}
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+        run: |
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[
+              'set -e',
+              'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml',
+              'export PATH=\$PATH:/usr/local/bin',
+              'cd /opt/finals-buddy && git pull',
+              'bash infra/scripts/apply-manifests.sh',
+              '/usr/local/bin/refresh-ecr-secret.sh',
+              '/usr/local/bin/sync-app-secrets.sh',
+              'kubectl set image deployment/finals-buddy-api api=${ECR_URI}:${{ github.sha }} -n finals-buddy',
+              'kubectl rollout status deployment/finals-buddy-api -n finals-buddy --timeout=300s'
+            ]" \
+            --query "Command.CommandId" --output text)
+
+          echo "SSM command: $COMMAND_ID"
+          for i in $(seq 1 40); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query "Status" --output text)
+            echo "status: $STATUS"
+            case "$STATUS" in
+              Success) exit 0 ;;
+              Failed|Cancelled|TimedOut)
+                aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID"
+                exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "timed out waiting for the deploy command"
+          exit 1
+
+      - name: Smoke test the live API
+        env:
+          API_URL: ${{ vars.API_PUBLIC_URL }}
+        run: |
+          for i in $(seq 1 12); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/health" || echo 000)
+            [ "$CODE" = "200" ] && break
+            sleep 10
+          done
+          test "$CODE" = "200"
+          # Metrics must be live too: a deploy that silently drops instrumentation
+          # leaves the dashboards flat and nobody notices for days.
+          curl -sf "$API_URL/metrics" | grep -q fb_rag_queries_total
