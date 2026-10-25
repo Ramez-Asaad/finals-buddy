@@ -49,3 +49,9 @@ DEPLOY.md
 
 # contains admin_cidr, which is a personal IP address
 infra/terraform/terraform.tfvars
+docs/DOCUMENTATION.aux
+docs/DOCUMENTATION.fdb_latexmk
+docs/DOCUMENTATION.fls
+docs/DOCUMENTATION.out
+docs/DOCUMENTATION.synctex.gz
+docs/DOCUMENTATION.toc
