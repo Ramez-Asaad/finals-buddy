@@ -110,13 +110,24 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
     resources = [aws_ecr_repository.api.arn]
   }
+  # SendCommand is the action that can actually run code, so it stays pinned to
+  # this one instance and this one document.
   statement {
     sid     = "DeployViaSSM"
-    actions = ["ssm:SendCommand", "ssm:GetCommandInvocation"]
+    actions = ["ssm:SendCommand"]
     resources = [
       "arn:aws:ec2:${var.aws_region}:*:instance/${aws_instance.app.id}",
       "arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript",
     ]
+  }
+
+  # GetCommandInvocation does not support resource-level permissions in IAM, so
+  # it has to be granted on "*". It only reads the status and output of a
+  # command, and sending one is already restricted above.
+  statement {
+    sid       = "ReadCommandResult"
+    actions   = ["ssm:GetCommandInvocation"]
+    resources = ["*"]
   }
 }
 
